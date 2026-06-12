@@ -39,14 +39,42 @@ export class Preloader extends Scene
         this.load.image('bg-layer-2', 'background/2.png');
         this.load.image('bg-layer-3', 'background/3.png');
         this.load.image('bg-layer-4', 'background/4.png');
+
+        this.load.image('platform-tile-11', 'platform/tiles/11.png');
+
+        for (let i = 0; i < 5; i++)
+        {
+            const frame = String(i).padStart(3, '0');
+            this.load.image(`wizard-idle-${i}`, `wizard/1_IDLE_${frame}.png`);
+            this.load.image(`wizard-walk-${i}`, `wizard/2_WALK_${frame}.png`);
+            this.load.image(`wizard-jump-${i}`, `wizard/4_JUMP_${frame}.png`);
+        }
     }
 
     create ()
     {
-        //  When all the assets have loaded, it's often worth creating global objects here that the rest of the game can use.
-        //  For example, you can define global animations here, so we can use them in other scenes.
+        this.anims.create({
+            key: 'wizard-idle',
+            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-idle-${i}` })),
+            frameRate: 8,
+            repeat: -1
+        });
+
+        this.anims.create({
+            key: 'wizard-walk',
+            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-walk-${i}` })),
+            frameRate: 10,
+            repeat: -1
+        });
+
+        this.anims.create({
+            key: 'wizard-jump',
+            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-jump-${i}` })),
+            frameRate: 12,
+            repeat: 0
+        });
 
         //  Move to the MainMenu. You could also swap this for a Scene Transition, such as a camera fade.
-        this.scene.start('MainMenu');
+        this.scene.start('Game');
     }
 }
