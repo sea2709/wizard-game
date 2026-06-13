@@ -1,5 +1,7 @@
 # Phaser React TypeScript Template
 
+> **AI / contributor reference:** See [AGENTS.md](AGENTS.md) for architecture, game logic, tile system, assets, and conventions. Start there instead of reading the full codebase.
+
 This is a Phaser project template that uses the React framework and Vite for bundling. It includes a bridge for React to Phaser game communication, hot-reloading for quick development workflow and scripts to generate production-ready builds.
 
 **[This Template is also available as a JavaScript version.](https://github.com/phaserjs/template-react)**

@@ -4,16 +4,16 @@ overview: Add a run state triggered after holding left/right for 2 seconds, usin
 todos:
   - id: load-run-assets
     content: Load 3_RUN frames and create wizard-run animation in Preloader.ts
-    status: pending
+    status: completed
   - id: run-timer-logic
     content: Add moveHoldTime tracking and isRunning flag in Game.ts update()
-    status: pending
+    status: completed
   - id: run-movement-jump
     content: Apply RUN_SPEED and RUN_JUMP_VELOCITY when isRunning
-    status: pending
+    status: completed
   - id: run-animation-state
     content: Extend PlayerAnimState and setPlayerAnimation with run case
-    status: pending
+    status: completed
 isProject: true
 ---
 
