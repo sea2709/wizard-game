@@ -47,6 +47,7 @@ export class Preloader extends Scene
             const frame = String(i).padStart(3, '0');
             this.load.image(`wizard-idle-${i}`, `wizard/1_IDLE_${frame}.png`);
             this.load.image(`wizard-walk-${i}`, `wizard/2_WALK_${frame}.png`);
+            this.load.image(`wizard-run-${i}`, `wizard/3_RUN_${frame}.png`);
             this.load.image(`wizard-jump-${i}`, `wizard/4_JUMP_${frame}.png`);
         }
     }
@@ -64,6 +65,13 @@ export class Preloader extends Scene
             key: 'wizard-walk',
             frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-walk-${i}` })),
             frameRate: 10,
+            repeat: -1
+        });
+
+        this.anims.create({
+            key: 'wizard-run',
+            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-run-${i}` })),
+            frameRate: 14,
             repeat: -1
         });
 

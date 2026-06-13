@@ -2,11 +2,13 @@ import { Input, Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 
 const PLAYER_SPEED = 220;
+const RUN_SPEED = 330;
 const JUMP_VELOCITY = -420;
+const RUN_JUMP_VELOCITY = -540;
 const WORLD_WIDTH_MULTIPLIER = 5;
 const BACKGROUND_SCROLL_FACTORS = [0.1, 0.25, 0.45, 0.65];
 
-type PlayerAnimState = 'idle' | 'walk' | 'jump';
+type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump';
 
 export class Game extends Scene
 {
@@ -16,6 +18,7 @@ export class Game extends Scene
     player: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     spaceKey: Phaser.Input.Keyboard.Key;
+    shiftKey: Phaser.Input.Keyboard.Key;
     playerAnimState: PlayerAnimState = 'idle';
     airFrames = 0;
     groundedFrames = 0;
@@ -78,6 +81,7 @@ export class Game extends Scene
 
         this.cursors = this.input.keyboard!.createCursorKeys();
         this.spaceKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SPACE);
+        this.shiftKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SHIFT);
 
         EventBus.emit('current-scene-ready', this);
     }
@@ -111,6 +115,9 @@ export class Game extends Scene
             case 'walk':
                 this.player.anims.play('wizard-walk');
                 break;
+            case 'run':
+                this.player.anims.play('wizard-run');
+                break;
             case 'idle':
                 this.player.anims.play('wizard-idle');
                 break;
@@ -139,26 +146,31 @@ export class Game extends Scene
             this.groundedFrames = 0;
         }
 
+        const isMoving = this.cursors.left.isDown || this.cursors.right.isDown;
+        const isRunning = isMoving && this.shiftKey.isDown;
+
         const jumpPressed = Input.Keyboard.JustDown(this.cursors.up!)
             || Input.Keyboard.JustDown(this.spaceKey);
         const isGrounded = this.groundedFrames >= 1;
         const inAir = this.airFrames >= 2;
+        const speed = isRunning ? RUN_SPEED : PLAYER_SPEED;
+        const jumpVelocity = isRunning ? RUN_JUMP_VELOCITY : JUMP_VELOCITY;
 
         if (jumpPressed && isGrounded)
         {
-            this.player.setVelocityY(JUMP_VELOCITY);
+            this.player.setVelocityY(jumpVelocity);
             this.airFrames = 2;
             this.groundedFrames = 0;
         }
 
         if (this.cursors.left.isDown)
         {
-            this.player.setVelocityX(-PLAYER_SPEED);
+            this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
         }
         else if (this.cursors.right.isDown)
         {
-            this.player.setVelocityX(PLAYER_SPEED);
+            this.player.setVelocityX(speed);
             this.player.setFlipX(false);
         }
         else
@@ -166,11 +178,13 @@ export class Game extends Scene
             this.player.setVelocityX(0);
         }
 
-        const isMoving = this.cursors.left.isDown || this.cursors.right.isDown;
-
         if (inAir)
         {
             this.setPlayerAnimation('jump');
+        }
+        else if (isRunning)
+        {
+            this.setPlayerAnimation('run');
         }
         else if (isMoving)
         {
