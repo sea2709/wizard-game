@@ -2,7 +2,7 @@ import { Boot } from './scenes/Boot';
 import { GameOver } from './scenes/GameOver';
 import { Game as MainGame } from './scenes/Game';
 import { MainMenu } from './scenes/MainMenu';
-import { AUTO, Game } from 'phaser';
+import { AUTO, Game, Scale } from 'phaser';
 import { Preloader } from './scenes/Preloader';
 import { DEBUG_PHYSICS } from './debug';
 
@@ -14,6 +14,14 @@ const config: Phaser.Types.Core.GameConfig = {
     height: 960,
     parent: 'game-container',
     backgroundColor: '#028af8',
+    render: {
+        antialias: true,
+        pixelArt: false
+    },
+    scale: {
+        mode: Scale.FIT,
+        autoCenter: Scale.CENTER_BOTH
+    },
     physics: {
         default: 'arcade',
         arcade: {

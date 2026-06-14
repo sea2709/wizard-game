@@ -5,7 +5,7 @@ This document describes the **current** architecture, game logic, and convention
 ## Quick summary
 
 - **Stack:** Phaser 4, React 19, TypeScript, Vite
-- **Genre:** 2D side-scrolling platformer (Arcade physics, continuous movement)
+- **Genre:** 2D side-scrolling platformer — collect starlights before the sky goes dark
 - **Main gameplay file:** `src/game/scenes/Game.ts`
 - **World width:** 6480px (fixed; viewport is 1280×960)
 - **Dev entry:** Preloader starts `Game` directly (skips MainMenu)
@@ -25,6 +25,11 @@ src/
     EventBus.ts            # Phaser Events.EventEmitter for React ↔ Phaser
     world/
       worldMap.ts          # 135×40 tile grid (0/1), platform layout
+      starlightSpawns.ts   # Starlight spawn positions from platform runs
+      gloomMiteSpawns.ts   # Gloom mite spawn positions from platform runs
+    starlightConfig.ts     # Darkness timer + starlight placement tuning
+    starlightAnimations.ts # Starlight idle + collect tweens
+    baddiesConfig.ts       # Gloom mite patrol, hit, and spawn tuning
     scenes/
       Boot.ts              # Loads minimal assets, → Preloader
       Preloader.ts         # Loads game assets + registers animations
@@ -36,8 +41,9 @@ public/assets/
   background/              # Parallax layers 1–4 (+ orig reference)
   platform/tiles/          # Platform tile images (only 11.png loaded in game)
   platform/spring_.png     # Legacy spritesheet (not used)
-  wizard/                  # Character sprite frames (idle/walk/run/jump + unused attack/hurt/die)
+  wizard/                  # Character sprite frames (idle/walk/run/jump/hurt + unused attack/die)
   bg.png, logo.png, star.png
+  starlight/               # Starlight collectible (stars.png)
 ```
 
 ---
@@ -79,6 +85,8 @@ at the end of `create()`.
 |---------|-------|
 | Resolution | 1280 × 960 |
 | Renderer | `AUTO` |
+| Render | `antialias: true`, `pixelArt: false` |
+| Scale | `FIT`, `CENTER_BOTH` |
 | Parent DOM id | `game-container` |
 | Background color | `#028af8` |
 | Physics | Arcade, gravity `{ x: 0, y: 800 }` |
@@ -128,7 +136,8 @@ Set any param to `0` or `false` to disable.
 Defined in `src/game/world/worldMap.ts`. `Game.ts` imports `WORLD_WIDTH` from there.
 
 - `physics.world.setBounds` and `cameras.main.setBounds` match world width
-- Camera follows player horizontally (`startFollow`, lerp 0.1)
+- Camera follows player horizontally (`startFollow`, lerp `1` on X — locked to player)
+- `cameras.main.roundPixels = false` — subpixel scroll for smoother motion with filtered sprites
 - Player starts at `x: 80` on the platform surface
 - `setCollideWorldBounds(true)` — player cannot leave world horizontally
 
@@ -137,14 +146,114 @@ Defined in `src/game/world/worldMap.ts`. `Game.ts` imports `WORLD_WIDTH` from th
 ## Platform
 
 - **Layout:** `worldMap` in `src/game/world/worldMap.ts` — row-major `135 × 40` grid
-  - `worldMap[row][col]`: `0` = empty, `1` = platform tile
-  - Default: bottom row (row 39) filled with `1` (full ground)
-  - Floating tiers: 7 tiers, generated in random order (`shuffleTiers`), each tier once
-  - Adjacent floating tiers need at least 2 empty columns between platform runs (ground excluded)
+ - `worldMap[row][col]`: `0` = empty, `1` = platform tile, `2` = tree1, `4` = tree2 (air row above platform)
+ - Bottom row (row 39) filled with `1` (full ground)
+ - Floating platforms are built as **connected climbable structures** (towers/staircases), not scattered segments
 - **Tile size:** 48×24px (`platform-tile-11`, texture used 1:1)
-- **Rendering:** One static sprite per `1` cell via `physics.add.staticGroup()`
+- **Rendering:** platform sprites for cell `1`; tree sprites for cell `2` in the row above, feet on `tileSurfaceY(platformRow)`
 - **Position:** `tileToWorld(col, row)` — sprite origin `(0.5, 1)`, `depth 10`
-- **Collider:** Same static group sprites (Arcade physics bodies)
+- **Collider:** platform sprites only (`1`); trees are decorative
+
+### Generation (`createDefaultWorldMap`)
+
+Structures are placed left→right across the world, separated by `MIN_STRUCTURE_GAP`–`MAX_STRUCTURE_GAP` empty columns (ground connects them).
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `TIER_ROW_STEP` | 4 | Rows between stacked tiers (96px < walk-jump apex ~120px) |
+| `MAX_STRUCTURE_TIERS` | 6 | Tallest staircase (in tiers); kept low to limit tile count |
+| `MIN_RUN_LENGTH` / `MAX_RUN_LENGTH` | 3 / 5 | Platform run length bounds (≥3 ⇒ can host a starlight) |
+| `MIN_STEP_GAP` / `MAX_STEP_GAP` | 2 / 3 | Empty cols between stacked tiers — the jump room |
+| `MIN_STRUCTURE_GAP` / `MAX_STRUCTURE_GAP` | 6 / 14 | Empty columns between structures |
+
+- `buildStructure()` builds an **up-and-over staircase**: each step goes up one tier *and* right by an empty `STEP_GAP`. A tier never sits directly over the one below, so the wizard always has clear sky to launch through and a side approach to land on — no unjumpable overhang. The gap (2–3 cols) is tuned to the wall-clearance math: ≥2 cols clears the platform's edge while rising 96px, ≤3 still lands on the upper run.
+- Tier 1 is reachable from the continuous ground; each higher step is reachable from the step below ⇒ the whole staircase is climbable.
+- Typical output: ~12–18 starlights, ~40–70 floating tiles per generation.
+
+### Reachability guarantee
+
+`worldMap.ts` runs a BFS (`computeReachableRuns`) from the ground run over a **conservative walk-jump model**, then `pruneUnreachableRuns()` clears any platform run not reachable. Because starlights/mites only spawn on surviving runs, **every starlight is guaranteed collectible**.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `MAX_JUMP_UP_ROWS` | 4 | Max rows climbed in one jump |
+| `MAX_GAP_FOR_RISE` | `[5,4,4,3,3]` | Max horizontal gap (cols) clearable per rise (rows) |
+| `MAX_DROP_GAP` | 6 | Max horizontal gap when dropping/level |
+
+To extend jump physics in `Game.ts`, keep these bounds in sync (or more conservative) so the BFS never accepts a jump the player can't make.
+
+### Decorative trees (cell `2`)
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `TREE_COUNT` | 4 | Trees placed per world |
+| `CELL_TREE` | 2 | Tree type 1 (`tree1.png`) in air row above platform |
+| `CELL_TREE_2` | 4 | Tree type 2 (`tree2.png`) in air row above platform |
+| Tree width | 2×–4× `TILE_WIDTH` | Stored in `worldTreeScale[treeRow][col]` |
+
+- **Sprites:** `tree1.png` → `tree-1`, `tree2.png` → `tree-2`
+- **Grid layout:** tree cell at row `R`, platform at row `R + 1` (same `col`)
+- **Placement:** 4 trees total — at least 1 on ground, spread evenly left→right across the world (not clustered at the start); no overlapping footprints
+- **Rendering:** `getTreeTextureKey(cell)`; feet at `tileSurfaceY(platformRow)`
+
+---
+
+## Starlights & darkness
+
+**Goal:** Collect all starlights before the sky becomes fully dark.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `DARKNESS_FILL_SECONDS` | 90 | Time until sky is 100% dark if no starlights collected |
+| `STARLIGHT_GROUND_OFFSET` | 18 | Walk-through height above platform surface |
+| `STARLIGHT_JUMP_OFFSET` | 54 | Standing-jump height — must leave the ground |
+| `STARLIGHT_ARC_OFFSET` | 42 | Run-jump height — paired with horizontal offset |
+| `STARLIGHT_DISPLAY_SIZE` | 24 | On-screen starlight sprite size (one tile height) |
+| `STARLIGHT_PULSE_SCALE` | 1.12 | Idle pulse tween peak scale |
+| `STARLIGHT_PULSE_MS` | 700 | Pulse half-cycle duration |
+| `STARLIGHT_BOB_PX` | 5 | Vertical bob amplitude |
+| `STARLIGHT_TURN_ANGLE` | 24 | Turn-around swing amplitude (degrees) |
+| `STARLIGHT_SPIN_MS` | 5200 | Slow-spin cycle duration |
+| `STARLIGHT_COLLECT_MS` | 280 | Collect burst duration |
+
+- **Sprite:** `public/assets/starlight/stars.png` (texture key `starlight`)
+- **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — layered tweens per starlight (staggered by spawn position):
+  - **Pulse** — scale breathe
+  - **Bob** — gentle vertical float
+  - **Twinkle** — alpha shimmer
+  - **Swing or spin** — even seeds turn back-and-forth; odd seeds slow continuous rotation
+- **Collect burst:** `playStarlightCollectAnimation()` — scale up, spin, fade out before the sprite is removed
+- **Spawns:** One starlight per platform run (length ≥ 3) via `getStarlightSpawns(worldMap)`. Placement is deterministic per run (`runSeed`):
+  - **ground** (~40%): center of run, low — walk through to collect
+  - **jump** (~35%): center, higher — standing jump required
+  - **arc** (~25%, runs ≥ 4 only): near run start/end, mid height — run and jump to collect
+- **Collection:** `physics.add.overlap` with player; each starlight pushes darkness back by `1 / totalStarlights`
+- **HUD:** Top-left — `Starlights: collected/total` + sky darkness %. `updateHud()` only runs when displayed values change (sky % ticks ~1/s; starlight count on collect/hit). Darkness overlay alpha still updates every frame.
+- **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 30), alpha tracks darkness
+- **Win:** All starlights collected → `GameOver` with `outcome: 'victory'`
+- **Lose:** Darkness reaches 100% → `GameOver` with `outcome: 'darkness'`
+
+---
+
+## Gloom mites (baddies)
+
+Patrol enemies on floating platform runs; contact adds darkness (no HP system).
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `GLOOM_MITE_DARKNESS_SPIKE` | 0.08 | Darkness added per hit (8%) |
+| `GLOOM_MITE_PATROL_SPEED` | 80 | Horizontal patrol speed (px/s) |
+| `GLOOM_MITE_DISPLAY_SIZE` | 32 | On-screen sprite size |
+| `GLOOM_MITE_HIT_COOLDOWN_MS` | 1200 | Invulnerability between hits |
+| `GLOOM_MITE_KNOCKBACK_X` | 180 | Horizontal knockback on hit |
+| `MIN_GLOOM_MITE_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
+
+- **Sprite:** Procedural texture `gloom-mite` in `Preloader.createGloomMiteTexture()`
+- **When:** All mites spawn at level start in `Game.spawnGloomMites()` (not time-gated)
+- **Where:** One per platform run (length ≥ 4) on floating tiers only (ground row excluded) via `getGloomMiteSpawns(worldMap)`
+- **Behavior:** Patrol between run edges; platform collider; flip at bounds
+- **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
+- **Depth:** 18 (above platforms, below player)
 
 ---
 
@@ -174,12 +283,15 @@ Four parallax `TileSprite` layers in `Game.create()`:
 
 | Constant | Value |
 |----------|-------|
-| `PLAYER_SPEED` | 220 |
-| `RUN_SPEED` | 330 |
-| `JUMP_VELOCITY` | -420 |
-| `RUN_JUMP_VELOCITY` | ~-438 | Run jump height = 5 rows (`√(2gh)`, gravity 800) |
+| `PLAYER_SPEED` | 240 |
+| `RUN_SPEED` | 360 |
+| `PLAYER_DRAG_X` | 1400 | Horizontal drag — coast to stop when keys released |
+| `JUMP_VELOCITY` | ~-438 | Walk jump height = `WALK_JUMP_ROWS` = 5 rows (`√(2gh)`, gravity 800) |
+| `RUN_JUMP_VELOCITY` | ~-480 | Run jump height = `RUN_JUMP_ROWS` = 6 rows |
 
-Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox is narrowed via `updatePlayerBody()` (35% width, 85% height, feet-aligned).
+Jump heights are derived from row counts (`WALK_JUMP_ROWS` / `RUN_JUMP_ROWS`), so they stay clearly above the 4-row tier step and keep the world-map reachability model valid.
+
+Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox is narrowed via `updatePlayerBody()` (35% width, 85% height, feet-aligned). `setDragX(PLAYER_DRAG_X)` — releasing movement keys no longer zeroes velocity instantly; the wizard coasts to a stop on the ground.
 
 ### Controls
 
@@ -205,10 +317,11 @@ Debounced to avoid landing flicker:
 
 | Priority | State | Animation | Condition |
 |----------|-------|-----------|-----------|
-| 1 | jump | `wizard-jump` | `inAir` |
-| 2 | run | `wizard-run` | grounded, Ctrl + direction held |
-| 3 | walk | `wizard-walk` | grounded, direction held |
-| 4 | idle | `wizard-idle` | grounded, no direction |
+| 1 | hurt | `wizard-hurt` | gloom mite hit — locks until animation completes |
+| 2 | jump | `wizard-jump` | `inAir` |
+| 3 | run | `wizard-run` | grounded, Shift + direction held |
+| 4 | walk | `wizard-walk` | grounded, direction held or coasting (`|velocityX| > 8`) |
+| 5 | idle | `wizard-idle` | grounded, no input and not coasting |
 
 Run speed and boosted jump apply in air while Ctrl + direction remain held.
 
@@ -243,6 +356,7 @@ flowchart TD
 | `wizard/2_WALK_000–004.png` | `wizard-walk-0` … `4` |
 | `wizard/3_RUN_000–004.png` | `wizard-run-0` … `4` |
 | `wizard/4_JUMP_000–004.png` | `wizard-jump-0` … `4` |
+| `wizard/6_HURT_000–004.png` | `wizard-hurt-0` … `4` |
 
 ### Registered animations
 
@@ -252,11 +366,12 @@ flowchart TD
 | `wizard-walk` | 5 | 10 | loop |
 | `wizard-run` | 5 | 14 | loop |
 | `wizard-jump` | 5 | 12 | once |
+| `wizard-hurt` | 5 | 14 | once |
 
 ### Wizard sprite notes
 
 - Frames trimmed to consistent height with feet at bottom of texture
-- Other assets on disk but **not loaded**: `5_ATTACK_*`, `6_HURT_*`, `7_DIE_*`
+- Other assets on disk but **not loaded**: `5_ATTACK_*`, `7_DIE_*`
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
 
 ---
@@ -314,7 +429,7 @@ flowchart TD
 | Feature | Status |
 |---------|--------|
 | MainMenu on startup | Skipped; Preloader → Game directly |
-| Attack / hurt / die animations | Assets on disk only |
+| Attack / die animations | Assets on disk only |
 | Extra platform tiles (01–10, 12–22) | Not loaded |
 | `changeScene()` on Game | Goes to GameOver (unused in normal flow) |
 | Tile/grid world system | Removed (was `src/game/world/`; no longer in codebase) |
