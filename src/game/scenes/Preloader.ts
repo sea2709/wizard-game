@@ -1,5 +1,8 @@
 import { Scene } from 'phaser';
 
+const WIZARD_FRAME_WIDTH = 72;
+const WIZARD_FRAME_HEIGHT = 76;
+
 export class Preloader extends Scene
 {
     constructor ()
@@ -45,50 +48,45 @@ export class Preloader extends Scene
         this.load.image('tree-1', 'platform/elements/tree1.png');
         this.load.image('tree-2', 'platform/elements/tree2.png');
 
-        for (let i = 0; i < 5; i++)
-        {
-            const frame = String(i).padStart(3, '0');
-            this.load.image(`wizard-idle-${i}`, `wizard/1_IDLE_${frame}.png`);
-            this.load.image(`wizard-walk-${i}`, `wizard/2_WALK_${frame}.png`);
-            this.load.image(`wizard-run-${i}`, `wizard/3_RUN_${frame}.png`);
-            this.load.image(`wizard-jump-${i}`, `wizard/4_JUMP_${frame}.png`);
-            this.load.image(`wizard-hurt-${i}`, `wizard/6_HURT_${frame}.png`);
-        }
+        this.load.spritesheet('wizard', 'wizard/wizard-sheet.png', {
+            frameWidth: WIZARD_FRAME_WIDTH,
+            frameHeight: WIZARD_FRAME_HEIGHT
+        });
     }
 
     create ()
     {
         this.anims.create({
             key: 'wizard-idle',
-            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-idle-${i}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { start: 0, end: 4 }),
             frameRate: 8,
             repeat: -1
         });
 
         this.anims.create({
             key: 'wizard-walk',
-            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-walk-${i}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { start: 5, end: 9 }),
             frameRate: 10,
             repeat: -1
         });
 
         this.anims.create({
             key: 'wizard-run',
-            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-run-${i}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { start: 10, end: 14 }),
             frameRate: 14,
             repeat: -1
         });
 
         this.anims.create({
             key: 'wizard-jump',
-            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-jump-${i}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { start: 15, end: 19 }),
             frameRate: 12,
             repeat: 0
         });
 
         this.anims.create({
             key: 'wizard-hurt',
-            frames: Array.from({ length: 5 }, (_, i) => ({ key: `wizard-hurt-${i}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { start: 20, end: 24 }),
             frameRate: 14,
             repeat: 0
         });

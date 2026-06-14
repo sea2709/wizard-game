@@ -25,6 +25,7 @@ src/
     EventBus.ts            # Phaser Events.EventEmitter for React ↔ Phaser
     world/
       worldMap.ts          # 135×40 tile grid (0/1), platform layout
+      platformLayer.ts     # Batched TilemapLayer from world grid + collision
       starlightSpawns.ts   # Starlight spawn positions from platform runs
       gloomMiteSpawns.ts   # Gloom mite spawn positions from platform runs
     starlightConfig.ts     # Darkness timer + starlight placement tuning
@@ -41,9 +42,9 @@ public/assets/
   background/              # Parallax layers 1–4 (+ orig reference)
   platform/tiles/          # Platform tile images (only 11.png loaded in game)
   platform/spring_.png     # Legacy spritesheet (not used)
-  wizard/                  # Character sprite frames (idle/walk/run/jump/hurt + unused attack/die)
+  wizard/                  # Character spritesheet + source frames (attack/die unused)
   bg.png, logo.png, star.png
-  starlight/               # Starlight collectible (stars.png)
+  starlight/               # Starlight collectible (stars.png, 48×48)
 ```
 
 ---
@@ -150,9 +151,8 @@ Defined in `src/game/world/worldMap.ts`. `Game.ts` imports `WORLD_WIDTH` from th
  - Bottom row (row 39) filled with `1` (full ground)
  - Floating platforms are built as **connected climbable structures** (towers/staircases), not scattered segments
 - **Tile size:** 48×24px (`platform-tile-11`, texture used 1:1)
-- **Rendering:** platform sprites for cell `1`; tree sprites for cell `2` in the row above, feet on `tileSurfaceY(platformRow)`
-- **Position:** `tileToWorld(col, row)` — sprite origin `(0.5, 1)`, `depth 10`
-- **Collider:** platform sprites only (`1`); trees are decorative
+- **Rendering:** single batched `TilemapLayer` via `createPlatformLayer()` in `platformLayer.ts` (cell `1` tiles); tree sprites for cell `2`/`4` in the row above, feet on `tileSurfaceY(platformRow)`
+- **Collision:** arcade collider on the tilemap layer (tile index `0`); trees are decorative
 
 ### Generation (`createDefaultWorldMap`)
 
@@ -191,7 +191,7 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 | `CELL_TREE_2` | 4 | Tree type 2 (`tree2.png`) in air row above platform |
 | Tree width | 2×–4× `TILE_WIDTH` | Stored in `worldTreeScale[treeRow][col]` |
 
-- **Sprites:** `tree1.png` → `tree-1`, `tree2.png` → `tree-2`
+- **Sprites:** `tree1.png` → `tree-1`, `tree2.png` → `tree-2` (sources downscaled to **256px** long edge)
 - **Grid layout:** tree cell at row `R`, platform at row `R + 1` (same `col`)
 - **Placement:** 4 trees total — at least 1 on ground, spread evenly left→right across the world (not clustered at the start); no overlapping footprints
 - **Rendering:** `getTreeTextureKey(cell)`; feet at `tileSurfaceY(platformRow)`
@@ -211,17 +211,12 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 | `STARLIGHT_DISPLAY_SIZE` | 24 | On-screen starlight sprite size (one tile height) |
 | `STARLIGHT_PULSE_SCALE` | 1.12 | Idle pulse tween peak scale |
 | `STARLIGHT_PULSE_MS` | 700 | Pulse half-cycle duration |
-| `STARLIGHT_BOB_PX` | 5 | Vertical bob amplitude |
-| `STARLIGHT_TURN_ANGLE` | 24 | Turn-around swing amplitude (degrees) |
-| `STARLIGHT_SPIN_MS` | 5200 | Slow-spin cycle duration |
+| `STARLIGHT_TWINKLE_ALPHA_MIN` | 0.82 | Minimum alpha during twinkle |
+| `STARLIGHT_TWINKLE_MS` | 900 | Twinkle half-cycle duration |
 | `STARLIGHT_COLLECT_MS` | 280 | Collect burst duration |
 
-- **Sprite:** `public/assets/starlight/stars.png` (texture key `starlight`)
-- **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — layered tweens per starlight (staggered by spawn position):
-  - **Pulse** — scale breathe
-  - **Bob** — gentle vertical float
-  - **Twinkle** — alpha shimmer
-  - **Swing or spin** — even seeds turn back-and-forth; odd seeds slow continuous rotation
+- **Sprite:** `public/assets/starlight/stars.png` (texture key `starlight`, source **48×48**; displayed at 24px)
+- **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — **pulse + twinkle** tweens per starlight (staggered by spawn position; two tweens each)
 - **Collect burst:** `playStarlightCollectAnimation()` — scale up, spin, fade out before the sprite is removed
 - **Spawns:** One starlight per platform run (length ≥ 3) via `getStarlightSpawns(worldMap)`. Placement is deterministic per run (`runSeed`):
   - **ground** (~40%): center of run, low — walk through to collect
@@ -352,25 +347,25 @@ flowchart TD
 |-------|-------------|
 | `background/1–4.png` | `bg-layer-1` … `bg-layer-4` |
 | `platform/tiles/11.png` | `platform-tile-11` |
-| `wizard/1_IDLE_000–004.png` | `wizard-idle-0` … `4` |
-| `wizard/2_WALK_000–004.png` | `wizard-walk-0` … `4` |
-| `wizard/3_RUN_000–004.png` | `wizard-run-0` … `4` |
-| `wizard/4_JUMP_000–004.png` | `wizard-jump-0` … `4` |
-| `wizard/6_HURT_000–004.png` | `wizard-hurt-0` … `4` |
+| `starlight/stars.png` | `starlight` |
+| `platform/elements/tree1.png` | `tree-1` |
+| `platform/elements/tree2.png` | `tree-2` |
+| `wizard/wizard-sheet.png` | `wizard` (spritesheet, 72×76 cells) |
 
 ### Registered animations
 
-| Key | Frames | FPS | Repeat |
-|-----|--------|-----|--------|
-| `wizard-idle` | 5 | 8 | loop |
-| `wizard-walk` | 5 | 10 | loop |
-| `wizard-run` | 5 | 14 | loop |
-| `wizard-jump` | 5 | 12 | once |
-| `wizard-hurt` | 5 | 14 | once |
+| Key | Sheet frames | FPS | Repeat |
+|-----|--------------|-----|--------|
+| `wizard-idle` | 0–4 | 8 | loop |
+| `wizard-walk` | 5–9 | 10 | loop |
+| `wizard-run` | 10–14 | 14 | loop |
+| `wizard-jump` | 15–19 | 12 | once |
+| `wizard-hurt` | 20–24 | 14 | once |
 
 ### Wizard sprite notes
 
-- Frames trimmed to consistent height with feet at bottom of texture
+- Single spritesheet `wizard-sheet.png` (360×380, 5×5 grid of 72×76 cells); source PNGs in `wizard/` kept for editing
+- Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`)
 - Other assets on disk but **not loaded**: `5_ATTACK_*`, `7_DIE_*`
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
 

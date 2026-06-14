@@ -12,6 +12,7 @@ import { DARKNESS_FILL_SECONDS, STARLIGHT_DISPLAY_SIZE } from '../starlightConfi
 import { TREE_DEPTH } from '../elementsConfig';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
 import { getGloomMiteSpawns } from '../world/gloomMiteSpawns';
+import { createPlatformLayer } from '../world/platformLayer';
 import { getStarlightSpawns } from '../world/starlightSpawns';
 import {
     CELL_PLATFORM,
@@ -48,7 +49,7 @@ export class Game extends Scene
 {
     worldWidth = 0;
     backgroundLayers: Phaser.GameObjects.TileSprite[] = [];
-    platforms: Phaser.Physics.Arcade.StaticGroup;
+    platformLayer: Phaser.Tilemaps.TilemapLayer;
     player: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     spaceKey: Phaser.Input.Keyboard.Key;
@@ -102,23 +103,7 @@ export class Game extends Scene
             this.backgroundLayers.push(layer);
         });
 
-        this.platforms = this.physics.add.staticGroup();
-
-        for (let row = 0; row < WORLD_MAP_ROWS; row++)
-        {
-            for (let col = 0; col < WORLD_MAP_COLS; col++)
-            {
-                if (worldMap[row][col] !== CELL_PLATFORM)
-                {
-                    continue;
-                }
-
-                const { x, y } = tileToWorld(col, row);
-                const tile = this.platforms.create(x, y, 'platform-tile-11');
-
-                tile.setOrigin(0.5, 1).setDepth(10).refreshBody();
-            }
-        }
+        this.platformLayer = createPlatformLayer(this, worldMap, 10);
 
         for (let row = 0; row < WORLD_MAP_ROWS; row++)
         {
@@ -158,7 +143,7 @@ export class Game extends Scene
         const groundRow = WORLD_MAP_ROWS - 1;
         const playerX = 80;
 
-        this.player = this.physics.add.sprite(playerX, tileSurfaceY(groundRow), 'wizard-idle-0');
+        this.player = this.physics.add.sprite(playerX, tileSurfaceY(groundRow), 'wizard', 0);
         this.player.setOrigin(0.5, 1);
         this.player.setDepth(20);
         this.player.setCollideWorldBounds(true);
@@ -166,7 +151,7 @@ export class Game extends Scene
 
         this.updatePlayerBody();
 
-        this.physics.add.collider(this.player, this.platforms);
+        this.physics.add.collider(this.player, this.platformLayer);
 
         this.spawnStarlights();
         this.spawnGloomMites();
@@ -272,7 +257,7 @@ export class Game extends Scene
             );
         }
 
-        this.physics.add.collider(this.gloomMites, this.platforms);
+        this.physics.add.collider(this.gloomMites, this.platformLayer);
         this.physics.add.overlap(
             this.player,
             this.gloomMites,
