@@ -3,7 +3,14 @@ import {
     STARLIGHT_GROUND_OFFSET,
     STARLIGHT_JUMP_OFFSET
 } from '../starlightConfig';
-import { WORLD_MAP_COLS, WORLD_MAP_ROWS, isPlatformCell, type WorldMap } from './worldMap';
+import {
+    WORLD_MAP_COLS,
+    WORLD_MAP_ROWS,
+    getReachablePlatformRuns,
+    isPlatformCell,
+    type PlatformRun,
+    type WorldMap
+} from './worldMap';
 
 export type StarlightPlacement = 'ground' | 'jump' | 'arc';
 
@@ -15,6 +22,7 @@ export type StarlightSpawn = {
 };
 
 const MIN_PLATFORM_RUN_LENGTH = 3;
+const MAX_RANDOM_SPAWN_ATTEMPTS = 64;
 
 /** Deterministic hash for stable placement per platform run. */
 function runSeed (startCol: number, row: number, runLength: number): number
@@ -40,6 +48,44 @@ function pickPlacement (seed: number, runLength: number): StarlightPlacement
     }
 
     return 'arc';
+}
+
+function floatOffsetForPlacement (placement: StarlightPlacement): number
+{
+    switch (placement)
+    {
+        case 'jump':
+            return STARLIGHT_JUMP_OFFSET;
+        case 'arc':
+            return STARLIGHT_ARC_OFFSET;
+        default:
+            return STARLIGHT_GROUND_OFFSET;
+    }
+}
+
+function placementsForRunLength (runLength: number): StarlightPlacement[]
+{
+    if (runLength < 4)
+    {
+        return [ 'ground', 'jump' ];
+    }
+
+    return [ 'ground', 'jump', 'arc' ];
+}
+
+export function starlightSpawnKey (spawn: StarlightSpawn): string
+{
+    return `${spawn.col},${spawn.row},${spawn.floatOffsetPx}`;
+}
+
+function buildSpawn (col: number, row: number, placement: StarlightPlacement): StarlightSpawn
+{
+    return {
+        col,
+        row,
+        floatOffsetPx: floatOffsetForPlacement(placement),
+        placement
+    };
 }
 
 function placeStarlight (
@@ -83,6 +129,45 @@ function placeStarlight (
                 placement
             };
     }
+}
+
+function getReachableRunsForStarlights (map: WorldMap): PlatformRun[]
+{
+    return getReachablePlatformRuns(map).filter(
+        (run) => run.endCol - run.startCol + 1 >= MIN_PLATFORM_RUN_LENGTH
+    );
+}
+
+/** Pick a random reachable starlight position not already in `occupied`. */
+export function pickRandomStarlightSpawn (
+    map: WorldMap,
+    occupied: ReadonlySet<string>,
+    random: () => number = Math.random
+): StarlightSpawn | null
+{
+    const runs = getReachableRunsForStarlights(map);
+
+    if (runs.length === 0)
+    {
+        return null;
+    }
+
+    for (let attempt = 0; attempt < MAX_RANDOM_SPAWN_ATTEMPTS; attempt++)
+    {
+        const run = runs[Math.floor(random() * runs.length)];
+        const runLength = run.endCol - run.startCol + 1;
+        const col = run.startCol + Math.floor(random() * runLength);
+        const placements = placementsForRunLength(runLength);
+        const placement = placements[Math.floor(random() * placements.length)];
+        const spawn = buildSpawn(col, run.row, placement);
+
+        if (!occupied.has(starlightSpawnKey(spawn)))
+        {
+            return spawn;
+        }
+    }
+
+    return null;
 }
 
 export function getStarlightSpawns (map: WorldMap): StarlightSpawn[]

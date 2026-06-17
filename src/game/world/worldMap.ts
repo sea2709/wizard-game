@@ -86,7 +86,7 @@ const MAX_GAP_FOR_RISE = [5, 4, 4, 3, 3];
 /** Horizontal gap (cols) clearable when dropping to a lower/level platform. */
 const MAX_DROP_GAP = 6;
 
-type PlatformRun = {
+export type PlatformRun = {
     row: number;
     startCol: number;
     endCol: number;
@@ -332,6 +332,15 @@ function computeReachableRuns (runs: PlatformRun[]): boolean[]
     }
 
     return reachable;
+}
+
+/** Platform runs reachable from the ground via the conservative jump model. */
+export function getReachablePlatformRuns (map: WorldMap): PlatformRun[]
+{
+    const runs = getPlatformRuns(map);
+    const reachable = computeReachableRuns(runs);
+
+    return runs.filter((_, index) => reachable[index]);
 }
 
 /**

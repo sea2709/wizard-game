@@ -5,7 +5,7 @@ This document describes the **current** architecture, game logic, and convention
 ## Quick summary
 
 - **Stack:** Phaser 4, React 19, TypeScript, Vite
-- **Genre:** 2D side-scrolling platformer — collect starlights before the sky goes dark
+- **Genre:** 2D side-scrolling platformer — collect starlights to push the sky back from 50% darkness to clear
 - **Main gameplay file:** `src/game/scenes/Game.ts`
 - **World width:** 6480px (fixed; viewport is 1280×960)
 - **Dev entry:** Preloader starts `Game` directly (skips MainMenu)
@@ -27,10 +27,10 @@ src/
       worldMap.ts          # 135×40 tile grid (0/1), platform layout
       platformLayer.ts     # Batched TilemapLayer from world grid + collision
       starlightSpawns.ts   # Starlight spawn positions from platform runs
-      gloomMiteSpawns.ts   # Gloom mite spawn positions from platform runs
+      murklingSpawns.ts    # Murkling spawn positions from platform runs
     starlightConfig.ts     # Darkness timer + starlight placement tuning
     starlightAnimations.ts # Starlight idle + collect tweens
-    baddiesConfig.ts       # Gloom mite patrol, hit, and spawn tuning
+    baddiesConfig.ts       # Murkling patrol, hit, and spawn tuning
     scenes/
       Boot.ts              # Loads minimal assets, → Preloader
       Preloader.ts         # Loads game assets + registers animations
@@ -66,7 +66,7 @@ flowchart LR
 | Preloader | `Preloader`  | Loads all game assets, creates animations |
 | MainMenu  | `MainMenu`   | Template UI; `changeScene()` → Game |
 | Game      | `Game`       | Scrolling world, platform, wizard player |
-| GameOver  | `GameOver`   | Red overlay + "Game Over" text |
+| GameOver  | `GameOver`   | Template scene (unused in normal win/lose flow) |
 
 **Note:** `Preloader.create()` calls `this.scene.start('Game')` (dev shortcut). MainMenu is registered but not used on cold start.
 
@@ -172,7 +172,7 @@ Structures are placed left→right across the world, separated by `MIN_STRUCTURE
 
 ### Reachability guarantee
 
-`worldMap.ts` runs a BFS (`computeReachableRuns`) from the ground run over a **conservative walk-jump model**, then `pruneUnreachableRuns()` clears any platform run not reachable. Because starlights/mites only spawn on surviving runs, **every starlight is guaranteed collectible**.
+`worldMap.ts` runs a BFS (`computeReachableRuns`) from the ground run over a **conservative walk-jump model**, then `pruneUnreachableRuns()` clears any platform run not reachable. Because starlights/murklings only spawn on surviving runs, **every starlight is guaranteed collectible**.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -200,11 +200,19 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 
 ## Starlights & darkness
 
-**Goal:** Collect all starlights before the sky becomes fully dark.
+**Goal:** The sky starts at **50% darkness**. Collect starlights to push darkness down; reach **0%** to win. If darkness hits **100%**, you lose.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `DARKNESS_FILL_SECONDS` | 90 | Time until sky is 100% dark if no starlights collected |
+| `DARKNESS_START` | 0.5 | Sky darkness when the level begins |
+| `STARLIGHT_INITIAL_COUNT` | 5 | Starlights on screen at level start |
+| `STARLIGHT_SPAWN_INTERVAL_MS` | 5000 | Auto-spawn interval; resets on collect |
+| `STARLIGHT_DARKNESS_RELIEF` | 0.1 | Darkness removed per starlight (`DARKNESS_START / STARLIGHT_INITIAL_COUNT`) |
+| `DARKNESS_FILL_SECONDS` | 180 | Time for darkness to rise from 0% to 100% (from a 50% start, ~90s to lose if nothing is collected) |
+| `HUD_DARKNESS_DEPTH` | 5 | Darkness overlay — above bg (0–3), below platforms (10) |
+| `HUD_TEXT_DEPTH` | 6 | Starlight counter + darkness meter — above darkness overlay, below platforms |
+| `HUD_DARKNESS_BAR_WIDTH` | 220 | Darkness meter track width (pixels) |
+| `HUD_DARKNESS_BAR_HEIGHT` | 14 | Darkness meter track height (pixels) |
 | `STARLIGHT_GROUND_OFFSET` | 18 | Walk-through height above platform surface |
 | `STARLIGHT_JUMP_OFFSET` | 54 | Standing-jump height — must leave the ground |
 | `STARLIGHT_ARC_OFFSET` | 42 | Run-jump height — paired with horizontal offset |
@@ -218,34 +226,34 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 - **Sprite:** `public/assets/starlight/stars.png` (texture key `starlight`, source **48×48**; displayed at 24px)
 - **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — **pulse + twinkle** tweens per starlight (staggered by spawn position; two tweens each)
 - **Collect burst:** `playStarlightCollectAnimation()` — scale up, spin, fade out before the sprite is removed
-- **Spawns:** One starlight per platform run (length ≥ 3) via `getStarlightSpawns(worldMap)`. Placement is deterministic per run (`runSeed`):
-  - **ground** (~40%): center of run, low — walk through to collect
-  - **jump** (~35%): center, higher — standing jump required
-  - **arc** (~25%, runs ≥ 4 only): near run start/end, mid height — run and jump to collect
-- **Collection:** `physics.add.overlap` with player; each starlight pushes darkness back by `1 / totalStarlights`
-- **HUD:** Top-left — `Starlights: collected/total` + sky darkness %. `updateHud()` only runs when displayed values change (sky % ticks ~1/s; starlight count on collect/hit). Darkness overlay alpha still updates every frame.
-- **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 30), alpha tracks darkness
-- **Win:** All starlights collected → `GameOver` with `outcome: 'victory'`
-- **Lose:** Darkness reaches 100% → `GameOver` with `outcome: 'darkness'`
+- **Spawns:** **5** starlights at start. Every **5s** (and on each collect, which also resets the timer) a new starlight spawns at a random **reachable** position via `pickRandomStarlightSpawn()` — no two starlights share the same `col,row,floatOffsetPx`. Placement uses ground / jump / arc heights on runs with length ≥ 3.
+- **Collection:** `physics.add.overlap` with player; each starlight reduces darkness by `STARLIGHT_DARKNESS_RELIEF` (0.1) and immediately spawns a replacement.
+- **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, then darkness meter. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
+- **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
+- **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`scene.restart()`).
+- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard loops `wizard-jump` with a vertical tween, centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
+- **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); no scene change and no red overlay
 
 ---
 
-## Gloom mites (baddies)
+## Murklings (baddies)
 
-Patrol enemies on floating platform runs; contact adds darkness (no HP system).
+Patrol enemies on platform runs; contact adds darkness (no HP system).
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `GLOOM_MITE_DARKNESS_SPIKE` | 0.08 | Darkness added per hit (8%) |
-| `GLOOM_MITE_PATROL_SPEED` | 80 | Horizontal patrol speed (px/s) |
-| `GLOOM_MITE_DISPLAY_SIZE` | 32 | On-screen sprite size |
-| `GLOOM_MITE_HIT_COOLDOWN_MS` | 1200 | Invulnerability between hits |
-| `GLOOM_MITE_KNOCKBACK_X` | 180 | Horizontal knockback on hit |
-| `MIN_GLOOM_MITE_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
+| `MURKLING_DARKNESS_SPIKE` | 0.08 | Darkness added per hit (8%) |
+| `MURKLING_PATROL_SPEED` | 80 | Horizontal patrol speed (px/s) |
+| `MURKLING_DISPLAY_SIZE` | 48 | On-screen sprite size |
+| `MURKLING_HIT_COOLDOWN_MS` | 1200 | Invulnerability between hits |
+| `MURKLING_KNOCKBACK_X` | 180 | Horizontal knockback on hit |
+| `MIN_MURKLING_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
+| `MURKLING_SPAWN_INTERVAL_MS` | 3000 | Automatic murkling spawn interval |
+| `MURKLING_INITIAL_COUNT` | 10 | Murklings on screen at level start |
 
-- **Sprite:** Procedural texture `gloom-mite` in `Preloader.createGloomMiteTexture()`
-- **When:** All mites spawn at level start in `Game.spawnGloomMites()` (not time-gated)
-- **Where:** One per platform run (length ≥ 4) on floating tiers only (ground row excluded) via `getGloomMiteSpawns(worldMap)`
+- **Sprite:** `monster/walk.png` spritesheet (texture key `murkling`, 6×32×32 frames); loops `murkling-walk` while patrolling
+- **When:** **10** murklings at level start, then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
+- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; no two active murklings share the same `col,row` spawn cell
 - **Behavior:** Patrol between run edges; platform collider; flip at bounds
 - **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
 - **Depth:** 18 (above platforms, below player)
@@ -295,6 +303,7 @@ Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox i
 | Left / Right (hold) | Move horizontally |
 | Ctrl + Left / Right (hold) | Run (faster speed + run animation) |
 | Up or Space (press) | Jump (higher and farther if running) |
+| Esc (press) | Pause / resume — opens menu with **Resume** and **New Game** |
 
 ### Ground / air detection
 
@@ -312,7 +321,8 @@ Debounced to avoid landing flicker:
 
 | Priority | State | Animation | Condition |
 |----------|-------|-----------|-----------|
-| 1 | hurt | `wizard-hurt` | gloom mite hit — locks until animation completes |
+| 1 | hurt | `wizard-hurt` | murkling hit — locks until animation completes |
+| — | die | `wizard-die` | darkness game over — locks until scene ends |
 | 2 | jump | `wizard-jump` | `inAir` |
 | 3 | run | `wizard-run` | grounded, Shift + direction held |
 | 4 | walk | `wizard-walk` | grounded, direction held or coasting (`|velocityX| > 8`) |
@@ -351,6 +361,7 @@ flowchart TD
 | `platform/elements/tree1.png` | `tree-1` |
 | `platform/elements/tree2.png` | `tree-2` |
 | `wizard/wizard-sheet.png` | `wizard` (spritesheet, 72×76 cells) |
+| `monster/walk.png` | `murkling` (spritesheet, 32×32 cells) |
 
 ### Registered animations
 
@@ -361,12 +372,15 @@ flowchart TD
 | `wizard-run` | 10–14 | 14 | loop |
 | `wizard-jump` | 15–19 | 12 | once |
 | `wizard-hurt` | 20–24 | 14 | once |
+| `wizard-die` | `7_DIE_000/003/007/009/014` | 10 | once |
+| `murkling-walk` | 0–5 | 10 | loop |
 
 ### Wizard sprite notes
 
 - Single spritesheet `wizard-sheet.png` (360×380, 5×5 grid of 72×76 cells); source PNGs in `wizard/` kept for editing
 - Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`)
-- Other assets on disk but **not loaded**: `5_ATTACK_*`, `7_DIE_*`
+- Other assets on disk but **not loaded**: `5_ATTACK_*`
+- Die source frames `7_DIE_*.png` loaded individually for `wizard-die`
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
 
 ---
@@ -424,7 +438,8 @@ flowchart TD
 | Feature | Status |
 |---------|--------|
 | MainMenu on startup | Skipped; Preloader → Game directly |
-| Attack / die animations | Assets on disk only |
+| Attack animation | Assets on disk only |
+| Die animation | Implemented — `wizard-die` on darkness game over |
 | Extra platform tiles (01–10, 12–22) | Not loaded |
 | `changeScene()` on Game | Goes to GameOver (unused in normal flow) |
 | Tile/grid world system | Removed (was `src/game/world/`; no longer in codebase) |

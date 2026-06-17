@@ -1,7 +1,14 @@
 import { Scene } from 'phaser';
+import {
+    MURKLING_FRAME_SIZE,
+    MURKLING_WALK_FPS,
+    MURKLING_WALK_FRAME_COUNT
+} from '../baddiesConfig';
 
 const WIZARD_FRAME_WIDTH = 72;
 const WIZARD_FRAME_HEIGHT = 76;
+
+const WIZARD_DIE_FRAME_IDS = ['000', '003', '007', '009', '014'] as const;
 
 export class Preloader extends Scene
 {
@@ -52,6 +59,16 @@ export class Preloader extends Scene
             frameWidth: WIZARD_FRAME_WIDTH,
             frameHeight: WIZARD_FRAME_HEIGHT
         });
+
+        for (const frameId of WIZARD_DIE_FRAME_IDS)
+        {
+            this.load.image(`wizard-die-${frameId}`, `wizard/7_DIE_${frameId}.png`);
+        }
+
+        this.load.spritesheet('murkling', 'monster/walk.png', {
+            frameWidth: MURKLING_FRAME_SIZE,
+            frameHeight: MURKLING_FRAME_SIZE
+        });
     }
 
     create ()
@@ -91,24 +108,24 @@ export class Preloader extends Scene
             repeat: 0
         });
 
-        this.createGloomMiteTexture();
+        this.anims.create({
+            key: 'wizard-die',
+            frames: WIZARD_DIE_FRAME_IDS.map((frameId) => ({ key: `wizard-die-${frameId}` })),
+            frameRate: 10,
+            repeat: 0
+        });
+
+        this.anims.create({
+            key: 'murkling-walk',
+            frames: this.anims.generateFrameNumbers('murkling', {
+                start: 0,
+                end: MURKLING_WALK_FRAME_COUNT - 1
+            }),
+            frameRate: MURKLING_WALK_FPS,
+            repeat: -1
+        });
 
         //  Move to the MainMenu. You could also swap this for a Scene Transition, such as a camera fade.
         this.scene.start('Game');
-    }
-
-    createGloomMiteTexture ()
-    {
-        const size = 32;
-        const graphics = this.add.graphics();
-
-        graphics.fillStyle(0x2d1454, 1);
-        graphics.fillEllipse(size / 2, size - 10, 24, 18);
-        graphics.fillStyle(0xcc66ff, 1);
-        graphics.fillCircle(11, 11, 5);
-        graphics.fillCircle(21, 11, 5);
-
-        graphics.generateTexture('gloom-mite', size, size);
-        graphics.destroy();
     }
 }
