@@ -1,14 +1,19 @@
-import { Scene } from 'phaser';
+import { Scene, Textures } from 'phaser';
 import {
+    MURKLING_DIE_FPS,
+    MURKLING_DIE_SHEET_FRAMES,
     MURKLING_FRAME_SIZE,
     MURKLING_WALK_FPS,
-    MURKLING_WALK_FRAME_COUNT
+    MURKLING_WALK_SHEET_FRAMES
 } from '../baddiesConfig';
+import {
+    WIZARD_ATTACK_FPS,
+    WIZARD_ATTACK_SHEET_FRAMES,
+    WIZARD_DIE_SHEET_FRAMES
+} from '../wizardCombatConfig';
 
-const WIZARD_FRAME_WIDTH = 72;
+const WIZARD_FRAME_WIDTH = 96;
 const WIZARD_FRAME_HEIGHT = 76;
-
-const WIZARD_DIE_FRAME_IDS = ['000', '003', '007', '009', '014'] as const;
 
 export class Preloader extends Scene
 {
@@ -19,14 +24,17 @@ export class Preloader extends Scene
 
     init ()
     {
+        const centerX = this.scale.width / 2;
+        const centerY = this.scale.height / 2;
+
         //  We loaded this image in our Boot Scene, so we can display it here
-        this.add.image(512, 384, 'background');
+        this.add.image(centerX, centerY, 'background');
 
         //  A simple progress bar. This is the outline of the bar.
-        this.add.rectangle(512, 384, 468, 32).setStrokeStyle(1, 0xffffff);
+        this.add.rectangle(centerX, centerY, 468, 32).setStrokeStyle(1, 0xffffff);
 
         //  This is the progress bar itself. It will increase in size from the left based on the % of progress.
-        const bar = this.add.rectangle(512-230, 384, 4, 28, 0xffffff);
+        const bar = this.add.rectangle(centerX - 230, centerY, 4, 28, 0xffffff);
 
         //  Use the 'progress' event emitted by the LoaderPlugin to update the loading bar
         this.load.on('progress', (progress: number) => {
@@ -60,12 +68,7 @@ export class Preloader extends Scene
             frameHeight: WIZARD_FRAME_HEIGHT
         });
 
-        for (const frameId of WIZARD_DIE_FRAME_IDS)
-        {
-            this.load.image(`wizard-die-${frameId}`, `wizard/7_DIE_${frameId}.png`);
-        }
-
-        this.load.spritesheet('murkling', 'monster/walk.png', {
+        this.load.spritesheet('murkling', 'murkling/murkling-sheet.png', {
             frameWidth: MURKLING_FRAME_SIZE,
             frameHeight: MURKLING_FRAME_SIZE
         });
@@ -110,22 +113,61 @@ export class Preloader extends Scene
 
         this.anims.create({
             key: 'wizard-die',
-            frames: WIZARD_DIE_FRAME_IDS.map((frameId) => ({ key: `wizard-die-${frameId}` })),
+            frames: this.anims.generateFrameNumbers('wizard', { frames: [ ...WIZARD_DIE_SHEET_FRAMES ] }),
             frameRate: 10,
             repeat: 0
         });
 
         this.anims.create({
+            key: 'wizard-attack',
+            frames: this.anims.generateFrameNumbers('wizard', { frames: [ ...WIZARD_ATTACK_SHEET_FRAMES ] }),
+            frameRate: WIZARD_ATTACK_FPS,
+            repeat: 0
+        });
+
+        this.createFireballTexture();
+        this.configureMurklingTextures();
+
+        this.anims.create({
             key: 'murkling-walk',
             frames: this.anims.generateFrameNumbers('murkling', {
-                start: 0,
-                end: MURKLING_WALK_FRAME_COUNT - 1
+                frames: [ ...MURKLING_WALK_SHEET_FRAMES ]
             }),
             frameRate: MURKLING_WALK_FPS,
             repeat: -1
         });
 
-        //  Move to the MainMenu. You could also swap this for a Scene Transition, such as a camera fade.
-        this.scene.start('Game');
+        this.anims.create({
+            key: 'murkling-die',
+            frames: this.anims.generateFrameNumbers('murkling', {
+                frames: [ ...MURKLING_DIE_SHEET_FRAMES ]
+            }),
+            frameRate: MURKLING_DIE_FPS,
+            repeat: 0
+        });
+
+        this.scene.start('Story');
+    }
+
+    configureMurklingTextures ()
+    {
+        if (this.textures.exists('murkling'))
+        {
+            this.textures.get('murkling').setFilter(Textures.FilterMode.NEAREST);
+        }
+    }
+
+    createFireballTexture ()
+    {
+        const size = 24;
+        const graphics = this.add.graphics();
+
+        graphics.fillStyle(0xff6600, 1);
+        graphics.fillCircle(size / 2, size / 2, 9);
+        graphics.fillStyle(0xffcc33, 1);
+        graphics.fillCircle(size / 2, size / 2, 5);
+
+        graphics.generateTexture('fireball', size, size);
+        graphics.destroy();
     }
 }

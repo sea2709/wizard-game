@@ -6,7 +6,8 @@ import {
     MURKLING_KNOCKBACK_X,
     MURKLING_PATROL_SPEED,
     MURKLING_SPAWN_INTERVAL_MS,
-    MURKLING_INITIAL_COUNT
+    MURKLING_INITIAL_COUNT,
+    MIN_GROUND_MURKLING_COUNT
 } from '../baddiesConfig';
 import { EventBus } from '../EventBus';
 import { DEBUG_PHYSICS, DEBUG_WORLD_GRID } from '../debug';
@@ -30,7 +31,21 @@ import {
 } from '../starlightConfig';
 import { TREE_DEPTH } from '../elementsConfig';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
-import { murklingSpawnKey, pickRandomMurklingSpawn, type MurklingSpawn } from '../world/murklingSpawns';
+import {
+    murklingSpawnKey,
+    pickRandomGroundMurklingSpawn,
+    pickRandomMurklingSpawn,
+    type MurklingSpawn
+} from '../world/murklingSpawns';
+import {
+    FIREBALL_DISPLAY_SIZE,
+    FIREBALL_SPEED,
+    FIREBALL_SPAWN_OFFSET_X,
+    FIREBALL_SPAWN_OFFSET_Y,
+    WIZARD_ATTACK_FIREBALL_DELAY_MS,
+    WIZARD_DISPLAY_HEIGHT,
+    WIZARD_DISPLAY_WIDTH
+} from '../wizardCombatConfig';
 import { createPlatformLayer } from '../world/platformLayer';
 import { pickRandomStarlightSpawn, starlightSpawnKey, type StarlightSpawn } from '../world/starlightSpawns';
 import {
@@ -63,7 +78,7 @@ const RUN_JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * RUN_JUMP_RO
 const BACKGROUND_SCROLL_FACTORS = [0.1, 0.25, 0.45, 0.65];
 const PAUSE_MENU_DEPTH = 200;
 
-type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die';
+type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die' | 'attack';
 
 export class Game extends Scene
 {
@@ -75,13 +90,18 @@ export class Game extends Scene
     spaceKey: Phaser.Input.Keyboard.Key;
     shiftKey: Phaser.Input.Keyboard.Key;
     escKey: Phaser.Input.Keyboard.Key;
+    enterKey: Phaser.Input.Keyboard.Key;
     playerAnimState: PlayerAnimState = 'idle';
     isHurt = false;
+    isAttacking = false;
+    attackFireballTimer?: Phaser.Time.TimerEvent;
+    attackCompleteTimer?: Phaser.Time.TimerEvent;
     airFrames = 0;
     groundedFrames = 0;
     worldGridDebug?: Phaser.GameObjects.Graphics;
     starlights: Phaser.Physics.Arcade.Group;
     murklings: Phaser.Physics.Arcade.Group;
+    fireballs: Phaser.Physics.Arcade.Group;
     darknessOverlay: Phaser.GameObjects.Rectangle;
     hudStarlightIcon: Phaser.GameObjects.Image;
     hudStarlightCount: Phaser.GameObjects.Text;
@@ -180,6 +200,7 @@ export class Game extends Scene
 
         this.player = this.physics.add.sprite(playerX, tileSurfaceY(groundRow), 'wizard', 0);
         this.player.setOrigin(0.5, 1);
+        this.player.setDisplaySize(WIZARD_DISPLAY_WIDTH, WIZARD_DISPLAY_HEIGHT);
         this.player.setDepth(20);
         this.player.setCollideWorldBounds(true);
         this.player.setDragX(PLAYER_DRAG_X);
@@ -272,6 +293,7 @@ export class Game extends Scene
 
         this.spawnStarlights();
         this.spawnMurklings();
+        this.setupFireballs();
 
         this.updateHud();
         this.updateDarknessVisuals();
@@ -282,6 +304,7 @@ export class Game extends Scene
         this.spaceKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SPACE);
         this.shiftKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SHIFT);
         this.escKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ESC);
+        this.enterKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ENTER);
 
         if (import.meta.env.DEV)
         {
@@ -367,10 +390,188 @@ export class Game extends Scene
             (_player, murklingObject) => this.hitMurkling(murklingObject as Phaser.Physics.Arcade.Sprite)
         );
 
-        for (let i = 0; i < MURKLING_INITIAL_COUNT; i++)
+        for (let i = 0; i < MIN_GROUND_MURKLING_COUNT; i++)
+        {
+            this.spawnGroundMurkling();
+        }
+
+        for (let i = MIN_GROUND_MURKLING_COUNT; i < MURKLING_INITIAL_COUNT; i++)
         {
             this.spawnRandomMurkling();
         }
+    }
+
+    setupFireballs ()
+    {
+        this.fireballs = this.physics.add.group({
+            allowGravity: false,
+            maxSize: 24
+        });
+
+        this.physics.add.overlap(
+            this.fireballs,
+            this.murklings,
+            (fireballObject, murklingObject) => this.hitMurklingWithFireball(
+                fireballObject as Phaser.Physics.Arcade.Sprite,
+                murklingObject as Phaser.Physics.Arcade.Sprite
+            )
+        );
+
+        this.physics.add.collider(this.fireballs, this.platformLayer, (fireballObject) =>
+        {
+            (fireballObject as Phaser.Physics.Arcade.Sprite).destroy();
+        });
+    }
+
+    destroyMurkling (murkling: Phaser.Physics.Arcade.Sprite)
+    {
+        if (!murkling.active)
+        {
+            return;
+        }
+
+        murkling.destroy();
+    }
+
+    isMurklingDying (murkling: Phaser.Physics.Arcade.Sprite): boolean
+    {
+        return murkling.getData('dying') === true;
+    }
+
+    killMurkling (murkling: Phaser.Physics.Arcade.Sprite)
+    {
+        if (!murkling.active || this.isMurklingDying(murkling))
+        {
+            return;
+        }
+
+        murkling.setData('dying', true);
+        murkling.setVelocity(0, 0);
+        murkling.body.enable = false;
+        murkling.anims.play('murkling-die');
+        murkling.once('animationcomplete-murkling-die', () =>
+        {
+            this.destroyMurkling(murkling);
+        });
+
+        const dieAnim = this.anims.get('murkling-die');
+
+        if (dieAnim)
+        {
+            this.time.delayedCall(dieAnim.duration + 16, () =>
+            {
+                if (murkling.active && this.isMurklingDying(murkling))
+                {
+                    this.destroyMurkling(murkling);
+                }
+            });
+        }
+    }
+
+    hitMurklingWithFireball (
+        fireball: Phaser.Physics.Arcade.Sprite,
+        murkling: Phaser.Physics.Arcade.Sprite
+    )
+    {
+        if (!fireball.active || !murkling.active || this.gameEnded || this.isMurklingDying(murkling))
+        {
+            return;
+        }
+
+        this.killMurkling(murkling);
+        fireball.destroy();
+    }
+
+    spawnFireball ()
+    {
+        if (this.gameEnded || !this.player)
+        {
+            return;
+        }
+
+        const direction = this.player.flipX ? -1 : 1;
+        const x = this.player.x + direction * FIREBALL_SPAWN_OFFSET_X;
+        const y = this.player.y + FIREBALL_SPAWN_OFFSET_Y;
+        const fireball = this.fireballs.create(x, y, 'fireball') as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+
+        fireball.setDepth(19);
+        fireball.setDisplaySize(FIREBALL_DISPLAY_SIZE, FIREBALL_DISPLAY_SIZE);
+        fireball.setVelocityX(direction * FIREBALL_SPEED);
+        fireball.body.setAllowGravity(false);
+        fireball.setCollideWorldBounds(true);
+    }
+
+    updateFireballs ()
+    {
+        for (const fireballObject of this.fireballs.getChildren())
+        {
+            const fireball = fireballObject as Phaser.Physics.Arcade.Sprite;
+
+            if (fireball.x < -FIREBALL_DISPLAY_SIZE || fireball.x > this.worldWidth + FIREBALL_DISPLAY_SIZE)
+            {
+                fireball.destroy();
+            }
+        }
+    }
+
+    playPlayerAttack ()
+    {
+        if (this.isAttacking || this.isHurt || this.gameEnded || this.isVictoryCelebration)
+        {
+            return;
+        }
+
+        this.isAttacking = true;
+        this.player.setVelocityX(0);
+        this.clearAttackCompleteHandlers();
+        this.playerAnimState = 'idle';
+        this.setPlayerAnimation('attack');
+
+        this.attackFireballTimer?.remove();
+        this.attackFireballTimer = this.time.delayedCall(WIZARD_ATTACK_FIREBALL_DELAY_MS, () =>
+        {
+            this.attackFireballTimer = undefined;
+            this.spawnFireball();
+        });
+
+        this.player.once('animationcomplete-wizard-attack', this.onPlayerAttackComplete, this);
+
+        const attackAnim = this.anims.get('wizard-attack');
+
+        if (attackAnim)
+        {
+            this.attackCompleteTimer = this.time.delayedCall(attackAnim.duration + 16, () =>
+            {
+                this.onPlayerAttackComplete();
+            });
+        }
+    }
+
+    clearAttackCompleteHandlers ()
+    {
+        this.attackCompleteTimer?.remove();
+        this.attackCompleteTimer = undefined;
+        this.player.off('animationcomplete-wizard-attack', this.onPlayerAttackComplete, this);
+    }
+
+    onPlayerAttackComplete ()
+    {
+        if (!this.isAttacking)
+        {
+            return;
+        }
+
+        this.clearAttackCompleteHandlers();
+        this.isAttacking = false;
+        this.setPlayerAnimation('idle');
+    }
+
+    cancelPlayerAttack ()
+    {
+        this.attackFireballTimer?.remove();
+        this.attackFireballTimer = undefined;
+        this.clearAttackCompleteHandlers();
+        this.isAttacking = false;
     }
 
     getActiveMurklingSpawnKeys (): Set<string>
@@ -389,6 +590,18 @@ export class Game extends Scene
         }
 
         return occupied;
+    }
+
+    spawnGroundMurkling ()
+    {
+        const spawn = pickRandomGroundMurklingSpawn(worldMap, this.getActiveMurklingSpawnKeys());
+
+        if (!spawn)
+        {
+            return;
+        }
+
+        this.createMurkling(spawn);
     }
 
     spawnRandomMurkling ()
@@ -442,6 +655,12 @@ export class Game extends Scene
         for (const murklingObject of this.murklings.getChildren())
         {
             const murkling = murklingObject as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+
+            if (this.isMurklingDying(murkling))
+            {
+                continue;
+            }
+
             const patrolMinX = murkling.getData('patrolMinX') as number;
             const patrolMaxX = murkling.getData('patrolMaxX') as number;
 
@@ -462,7 +681,7 @@ export class Game extends Scene
 
     hitMurkling (murkling: Phaser.Physics.Arcade.Sprite)
     {
-        if (this.gameEnded || !murkling.active)
+        if (this.gameEnded || !murkling.active || this.isMurklingDying(murkling))
         {
             return;
         }
@@ -578,6 +797,7 @@ export class Game extends Scene
 
         if (outcome === 'darkness')
         {
+            this.cancelPlayerAttack();
             this.playerAnimState = 'idle';
             this.setPlayerAnimation('die');
             this.showEndScreenText('GAME OVER', 'The sky went dark...');
@@ -859,6 +1079,16 @@ export class Game extends Scene
             return;
         }
 
+        if (this.playerAnimState === 'hurt' && state !== 'hurt' && this.isHurt)
+        {
+            return;
+        }
+
+        if (this.playerAnimState === 'attack' && state !== 'attack' && this.isAttacking)
+        {
+            return;
+        }
+
         if (this.playerAnimState === state && !this.isVictoryCelebration)
         {
             return;
@@ -886,6 +1116,9 @@ export class Game extends Scene
             case 'die':
                 this.player.anims.play('wizard-die');
                 break;
+            case 'attack':
+                this.player.anims.play('wizard-attack');
+                break;
         }
 
         this.updatePlayerBody();
@@ -893,6 +1126,7 @@ export class Game extends Scene
 
     playPlayerHurt ()
     {
+        this.cancelPlayerAttack();
         this.isHurt = true;
         this.player.off('animationcomplete-wizard-hurt', this.onPlayerHurtComplete, this);
         this.playerAnimState = 'idle';
@@ -903,7 +1137,7 @@ export class Game extends Scene
     onPlayerHurtComplete ()
     {
         this.isHurt = false;
-        this.playerAnimState = 'idle';
+        this.setPlayerAnimation('idle');
     }
 
     update (_time: number, delta: number)
@@ -949,6 +1183,7 @@ export class Game extends Scene
         }
 
         this.updateMurklings();
+        this.updateFireballs();
 
         const onFloor = this.player.body.onFloor();
 
@@ -972,32 +1207,46 @@ export class Game extends Scene
 
         const jumpPressed = Input.Keyboard.JustDown(this.cursors.up!)
             || Input.Keyboard.JustDown(this.spaceKey);
+        const attackPressed = Input.Keyboard.JustDown(this.enterKey);
+
+        if (attackPressed)
+        {
+            this.playPlayerAttack();
+        }
+
         const speed = isRunning ? RUN_SPEED : PLAYER_SPEED;
         const jumpVelocity = isRunning ? RUN_JUMP_VELOCITY : JUMP_VELOCITY;
 
-        if (jumpPressed && isGrounded)
+        if (jumpPressed && isGrounded && !this.isAttacking)
         {
             this.player.setVelocityY(jumpVelocity);
             this.airFrames = 2;
             this.groundedFrames = 0;
         }
 
-        if (this.cursors.left.isDown)
+        if (!this.isAttacking)
         {
-            this.player.setVelocityX(-speed);
-            this.player.setFlipX(true);
+            if (this.cursors.left.isDown)
+            {
+                this.player.setVelocityX(-speed);
+                this.player.setFlipX(true);
+            }
+            else if (this.cursors.right.isDown)
+            {
+                this.player.setVelocityX(speed);
+                this.player.setFlipX(false);
+            }
+            else if (isCoasting)
+            {
+                this.player.setFlipX(velocityX < 0);
+            }
         }
-        else if (this.cursors.right.isDown)
+        else
         {
-            this.player.setVelocityX(speed);
-            this.player.setFlipX(false);
-        }
-        else if (isCoasting)
-        {
-            this.player.setFlipX(velocityX < 0);
+            this.player.setVelocityX(0);
         }
 
-        if (!this.isHurt)
+        if (!this.isHurt && !this.isAttacking)
         {
             if (inAir)
             {

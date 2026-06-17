@@ -1,9 +1,12 @@
 import { MIN_MURKLING_RUN_LENGTH } from '../baddiesConfig';
 import {
     getReachablePlatformRuns,
+    WORLD_MAP_ROWS,
     type PlatformRun,
     type WorldMap
 } from './worldMap';
+
+const GROUND_ROW = WORLD_MAP_ROWS - 1;
 
 export type MurklingSpawn = {
     col: number;
@@ -40,6 +43,69 @@ function getReachableRunsForMurklings (map: WorldMap): PlatformRun[]
     );
 }
 
+function runLength (run: PlatformRun): number
+{
+    return run.endCol - run.startCol + 1;
+}
+
+/** Pick a run with probability proportional to its length (cols). */
+function pickWeightedRun (runs: PlatformRun[], random: () => number): PlatformRun
+{
+    let totalLength = 0;
+
+    for (const run of runs)
+    {
+        totalLength += runLength(run);
+    }
+
+    let pick = random() * totalLength;
+
+    for (const run of runs)
+    {
+        const length = runLength(run);
+
+        if (pick < length)
+        {
+            return run;
+        }
+
+        pick -= length;
+    }
+
+    return runs[runs.length - 1];
+}
+
+function pickSpawnColInRun (run: PlatformRun, random: () => number): number
+{
+    return run.startCol + Math.floor(random() * runLength(run));
+}
+
+function tryPickSpawnInRuns (
+    runs: PlatformRun[],
+    occupied: ReadonlySet<string>,
+    random: () => number,
+    maxAttempts: number
+): MurklingSpawn | null
+{
+    if (runs.length === 0)
+    {
+        return null;
+    }
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++)
+    {
+        const run = pickWeightedRun(runs, random);
+        const spawn = buildSpawn(run, pickSpawnColInRun(run, random));
+
+        if (!occupied.has(murklingSpawnKey(spawn)))
+        {
+            return spawn;
+        }
+    }
+
+    return null;
+}
+
 function buildSpawn (run: PlatformRun, col: number): MurklingSpawn
 {
     return {
@@ -57,27 +123,24 @@ export function pickRandomMurklingSpawn (
     random: () => number = Math.random
 ): MurklingSpawn | null
 {
-    const runs = getReachableRunsForMurklings(map);
+    return tryPickSpawnInRuns(
+        getReachableRunsForMurklings(map),
+        occupied,
+        random,
+        MAX_RANDOM_SPAWN_ATTEMPTS
+    );
+}
 
-    if (runs.length === 0)
-    {
-        return null;
-    }
+/** Pick a random ground-row murkling spawn not already in `occupied`. */
+export function pickRandomGroundMurklingSpawn (
+    map: WorldMap,
+    occupied: ReadonlySet<string>,
+    random: () => number = Math.random
+): MurklingSpawn | null
+{
+    const groundRuns = getReachableRunsForMurklings(map).filter((run) => run.row === GROUND_ROW);
 
-    for (let attempt = 0; attempt < MAX_RANDOM_SPAWN_ATTEMPTS; attempt++)
-    {
-        const run = runs[Math.floor(random() * runs.length)];
-        const runLength = run.endCol - run.startCol + 1;
-        const col = run.startCol + Math.floor(random() * runLength);
-        const spawn = buildSpawn(run, col);
-
-        if (!occupied.has(murklingSpawnKey(spawn)))
-        {
-            return spawn;
-        }
-    }
-
-    return null;
+    return tryPickSpawnInRuns(groundRuns, occupied, random, MAX_RANDOM_SPAWN_ATTEMPTS);
 }
 
 export function getMurklingSpawns (map: WorldMap): MurklingSpawn[]

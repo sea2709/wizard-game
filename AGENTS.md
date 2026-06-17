@@ -1,14 +1,15 @@
-# AGENTS.md — Wizard Game Technical Reference
+# AGENTS.md — Starwarden Technical Reference
 
-This document describes the **current** architecture, game logic, and conventions for the `wizard` Phaser + React project. Read this before editing game code.
+This document describes the **current** architecture, game logic, and conventions for **Starwarden**, a Phaser + React project (repo folder: `wizard`). Read this before editing game code.
 
 ## Quick summary
 
+- **Game name:** Starwarden (browser title in `index.html`; story/instructions screens use the name in UI copy)
 - **Stack:** Phaser 4, React 19, TypeScript, Vite
 - **Genre:** 2D side-scrolling platformer — collect starlights to push the sky back from 50% darkness to clear
 - **Main gameplay file:** `src/game/scenes/Game.ts`
 - **World width:** 6480px (fixed; viewport is 1280×960)
-- **Dev entry:** Preloader starts `Game` directly (skips MainMenu)
+- **Dev entry:** Preloader starts `Story`, then `Instructions`, then `Game` (skips MainMenu)
 
 ---
 
@@ -17,7 +18,7 @@ This document describes the **current** architecture, game logic, and convention
 ```
 src/
   main.tsx                 # React bootstrap
-  App.tsx                  # React UI shell + Phaser ref bridge
+  App.tsx                  # React UI shell (mounts PhaserGame)
   PhaserGame.tsx           # Creates/destroys Phaser game, listens to EventBus
     game/
     main.ts                # Phaser Game config (resolution, physics, scene list)
@@ -31,9 +32,12 @@ src/
     starlightConfig.ts     # Darkness timer + starlight placement tuning
     starlightAnimations.ts # Starlight idle + collect tweens
     baddiesConfig.ts       # Murkling patrol, hit, and spawn tuning
+    wizardCombatConfig.ts  # Attack animation + fireball tuning
     scenes/
       Boot.ts              # Loads minimal assets, → Preloader
       Preloader.ts         # Loads game assets + registers animations
+      Story.ts           # Opening narrative before Instructions
+      Instructions.ts      # How-to-play screen before Game
       MainMenu.ts          # Template menu (logo tween demo)
       Game.ts              # Core gameplay scene
       GameOver.ts          # Game over screen
@@ -42,8 +46,9 @@ public/assets/
   background/              # Parallax layers 1–4 (+ orig reference)
   platform/tiles/          # Platform tile images (only 11.png loaded in game)
   platform/spring_.png     # Legacy spritesheet (not used)
-  wizard/                  # Character spritesheet + source frames (attack/die unused)
-  bg.png, logo.png, star.png
+  wizard/                  # Character spritesheet + source frames (rebuild sheet via scripts/build-wizard-sheet.sh)
+  murkling/                  # Murkling spritesheet + source strips (rebuild sheet via scripts/build-murkling-sheet.sh)
+  loading.jpg, logo.png, star.png
   starlight/               # Starlight collectible (stars.png, 48×48)
 ```
 
@@ -54,21 +59,25 @@ public/assets/
 ```mermaid
 flowchart LR
     Boot --> Preloader
-    Preloader --> Game
+    Preloader --> Story
+    Story --> Instructions
+    Instructions --> Game
     MainMenu --> Game
     Game --> GameOver
     GameOver --> MainMenu
 ```
 
-| Scene      | Key          | Role |
-|-----------|--------------|------|
-| Boot      | `Boot`       | Loads `bg.png` for preloader splash |
-| Preloader | `Preloader`  | Loads all game assets, creates animations |
-| MainMenu  | `MainMenu`   | Template UI; `changeScene()` → Game |
-| Game      | `Game`       | Scrolling world, platform, wizard player |
-| GameOver  | `GameOver`   | Template scene (unused in normal win/lose flow) |
+| Scene        | Key            | Role |
+|-------------|----------------|------|
+| Boot        | `Boot`         | Loads `loading.jpg` (1280×960) for preloader splash |
+| Preloader   | `Preloader`    | Loads all game assets, creates animations |
+| Story | `Story` | Opening narrative (2 pages); **Next** / **Continue** / Enter / Space → Instructions |
+| Instructions| `Instructions` | How-to-play screen; **Start Game** / Enter / Space → Game |
+| MainMenu    | `MainMenu`     | Template UI; `changeScene()` → Game |
+| Game        | `Game`         | Scrolling world, platform, wizard player |
+| GameOver    | `GameOver`     | Template scene (unused in normal win/lose flow) |
 
-**Note:** `Preloader.create()` calls `this.scene.start('Game')` (dev shortcut). MainMenu is registered but not used on cold start.
+**Note:** `Preloader.create()` calls `this.scene.start('Story')`. MainMenu is registered but not used on cold start. Pause **New Game** restarts `Game` directly (skips Story and Instructions).
 
 Every scene that React needs to control must emit:
 
@@ -250,12 +259,16 @@ Patrol enemies on platform runs; contact adds darkness (no HP system).
 | `MIN_MURKLING_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
 | `MURKLING_SPAWN_INTERVAL_MS` | 3000 | Automatic murkling spawn interval |
 | `MURKLING_INITIAL_COUNT` | 10 | Murklings on screen at level start |
+| `MIN_GROUND_MURKLING_COUNT` | 3 | Ground-row murklings guaranteed at level start |
+| `MURKLING_DIE_FPS` | 12 | Die animation frame rate |
 
-- **Sprite:** `monster/walk.png` spritesheet (texture key `murkling`, 6×32×32 frames); loops `murkling-walk` while patrolling
-- **When:** **10** murklings at level start, then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
-- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; no two active murklings share the same `col,row` spawn cell
+- **Sprite:** `murkling/murkling-sheet.png` (texture key `murkling`, 8×2 grid of 32×32 cells); loops `murkling-walk` while patrolling
+- **Die:** `murkling-die` animation uses row 1 of the same sheet (frames 8–15); plays on fireball hit, then sprite is removed
+- **When:** **10** murklings at level start (**3** guaranteed on the ground row, rest random), then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
+- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell
 - **Behavior:** Patrol between run edges; platform collider; flip at bounds
 - **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
+- **Fireball:** Enter throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
 - **Depth:** 18 (above platforms, below player)
 
 ---
@@ -304,6 +317,7 @@ Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox i
 | Ctrl + Left / Right (hold) | Run (faster speed + run animation) |
 | Up or Space (press) | Jump (higher and farther if running) |
 | Esc (press) | Pause / resume — opens menu with **Resume** and **New Game** |
+| Enter (press) | Throw a fireball (wizard-attack animation) |
 
 ### Ground / air detection
 
@@ -322,6 +336,7 @@ Debounced to avoid landing flicker:
 | Priority | State | Animation | Condition |
 |----------|-------|-----------|-----------|
 | 1 | hurt | `wizard-hurt` | murkling hit — locks until animation completes |
+| 2 | attack | `wizard-attack` | Enter — locks until animation completes; spawns fireball |
 | — | die | `wizard-die` | darkness game over — locks until scene ends |
 | 2 | jump | `wizard-jump` | `inAir` |
 | 3 | run | `wizard-run` | grounded, Shift + direction held |
@@ -329,6 +344,22 @@ Debounced to avoid landing flicker:
 | 5 | idle | `wizard-idle` | grounded, no input and not coasting |
 
 Run speed and boosted jump apply in air while Ctrl + direction remain held.
+
+### Combat (`wizardCombatConfig.ts`)
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `WIZARD_DISPLAY_WIDTH` / `WIZARD_DISPLAY_HEIGHT` | 96 / 76 | Locked on-screen wizard size (`setDisplaySize`) |
+| `WIZARD_ATTACK_FRAME_IDS` | 000, 002, 004, 005, 006 | Attack source frame names (`5_ATTACK_*.png`) |
+| `WIZARD_ATTACK_SHEET_FRAMES` | 25–29 | Attack animation indices in `wizard-sheet.png` |
+| `WIZARD_DIE_SHEET_FRAMES` | 30–34 | Die animation indices in `wizard-sheet.png` |
+| `WIZARD_ATTACK_FIREBALL_DELAY_MS` | 250 | Delay before fireball spawns |
+| `FIREBALL_SPEED` | 420 | Horizontal speed (px/s) |
+| `FIREBALL_DISPLAY_SIZE` | 20 | On-screen fireball diameter |
+
+- **Enter** plays `wizard-attack` (locks movement/anim until complete), then spawns a `fireball` projectile in facing direction
+- Fireballs destroy murklings on overlap and despawn on platform hit or leaving world bounds
+- Depth 19 (above murklings at 18, below player at 20)
 
 ### Movement flow
 
@@ -360,8 +391,8 @@ flowchart TD
 | `starlight/stars.png` | `starlight` |
 | `platform/elements/tree1.png` | `tree-1` |
 | `platform/elements/tree2.png` | `tree-2` |
-| `wizard/wizard-sheet.png` | `wizard` (spritesheet, 72×76 cells) |
-| `monster/walk.png` | `murkling` (spritesheet, 32×32 cells) |
+| `wizard/wizard-sheet.png` | `wizard` (spritesheet, 96×76 cells) |
+| `murkling/murkling-sheet.png` | `murkling` (spritesheet, 32×32 cells) |
 
 ### Registered animations
 
@@ -372,16 +403,23 @@ flowchart TD
 | `wizard-run` | 10–14 | 14 | loop |
 | `wizard-jump` | 15–19 | 12 | once |
 | `wizard-hurt` | 20–24 | 14 | once |
-| `wizard-die` | `7_DIE_000/003/007/009/014` | 10 | once |
+| `wizard-die` | 30–34 | 10 | once |
+| `wizard-attack` | 25–29 | 12 | once |
 | `murkling-walk` | 0–5 | 10 | loop |
+| `murkling-die` | 8–15 | 12 | once |
 
 ### Wizard sprite notes
 
-- Single spritesheet `wizard-sheet.png` (360×380, 5×5 grid of 72×76 cells); source PNGs in `wizard/` kept for editing
-- Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`)
-- Other assets on disk but **not loaded**: `5_ATTACK_*`
-- Die source frames `7_DIE_*.png` loaded individually for `wizard-die`
+- Single spritesheet `wizard-sheet.png` (480×532, 5×7 grid of 96×76 cells); source PNGs in `wizard/` kept for editing — rebuild with `scripts/build-wizard-sheet.sh`
+- Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); attack row is trimmed and upscaled to idle body height in `scripts/build-wizard-sheet.sh`
+- Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`); display locked to 96×76 via `WIZARD_DISPLAY_WIDTH` / `WIZARD_DISPLAY_HEIGHT`
+- Procedural `fireball` texture for projectiles
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
+
+### Murkling sprite notes
+
+- Single spritesheet `murkling-sheet.png` (256×64, 8×2 grid of 32×32 cells); source strips `walk.png` and `die.png` kept for editing — rebuild with `scripts/build-murkling-sheet.sh`
+- Row 0: walk (6 frames); row 1: die (8 frames); frame indices in `baddiesConfig.ts` (`MURKLING_WALK_SHEET_FRAMES`, `MURKLING_DIE_SHEET_FRAMES`)
 
 ---
 
@@ -399,11 +437,9 @@ flowchart TD
 - Updates `ref.current = { game, scene }` when scene is ready
 - Destroys game on unmount
 
-### `App.tsx` (template demo)
+### `App.tsx`
 
-- `changeScene()` — calls `MainMenu.changeScene()` → Game
-- `moveSprite()` — toggles logo tween on MainMenu
-- `addSprite()` — adds star sprite to active scene
+- Renders `PhaserGame` in a full-viewport `#app` container
 
 ---
 
@@ -438,7 +474,6 @@ flowchart TD
 | Feature | Status |
 |---------|--------|
 | MainMenu on startup | Skipped; Preloader → Game directly |
-| Attack animation | Assets on disk only |
 | Die animation | Implemented — `wizard-die` on darkness game over |
 | Extra platform tiles (01–10, 12–22) | Not loaded |
 | `changeScene()` on Game | Goes to GameOver (unused in normal flow) |
