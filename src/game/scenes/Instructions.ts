@@ -1,5 +1,6 @@
 import { EventBus } from '../EventBus';
 import { Scene } from 'phaser';
+import { addMenuSceneBackground } from './menuSceneBackground';
 
 const INSTRUCTION_LINES = [
     'The sky is gloomy — half swallowed by shadow!',
@@ -8,9 +9,9 @@ const INSTRUCTION_LINES = [
     'Clear the sky to win. Let the bar hit 100%… and it\'s curtains.',
     '',
     'Wander        ← →',
-    'Sprint        Ctrl + ← →',
+    'Sprint        Shift + ← →',
     'Leap          ↑ or Space',
-    'Zap!          Enter',
+    'Attack        Enter',
     '',
     'Murklings lurk on the platforms — bump one and the sky',
     'gets moodier. Toast them with a fireball instead!'
@@ -31,9 +32,7 @@ export class Instructions extends Scene
         const centerX = width / 2;
         const centerY = height / 2;
 
-        this.cameras.main.setBackgroundColor(0x120820);
-
-        this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.55);
+        addMenuSceneBackground(this);
 
         const panelWidth = 960;
         const panelHeight = 720;

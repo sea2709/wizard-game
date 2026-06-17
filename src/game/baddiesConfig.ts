@@ -42,3 +42,6 @@ export const MURKLING_INITIAL_COUNT = 10;
 
 /** Guaranteed ground-row murklings at level start (rest spawn randomly). */
 export const MIN_GROUND_MURKLING_COUNT = 3;
+
+/** Minimum horizontal distance (px) between a new murkling and the wizard. */
+export const MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD = 144;

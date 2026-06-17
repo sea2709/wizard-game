@@ -26,3 +26,6 @@ export const FIREBALL_DISPLAY_SIZE = 20;
 /** Fireball spawn offset from the wizard feet (pixels). */
 export const FIREBALL_SPAWN_OFFSET_X = 36;
 export const FIREBALL_SPAWN_OFFSET_Y = -48;
+
+/** Max horizontal travel when fired from the ground (pixels). */
+export const FIREBALL_GROUND_MAX_RANGE = 480;

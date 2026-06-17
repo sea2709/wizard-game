@@ -1,10 +1,10 @@
-# AGENTS.md — Starwarden Technical Reference
+# AGENTS.md — The Starwarden Technical Reference
 
-This document describes the **current** architecture, game logic, and conventions for **Starwarden**, a Phaser + React project (repo folder: `wizard`). Read this before editing game code.
+This document describes the **current** architecture, game logic, and conventions for **The Starwarden**, a Phaser + React project (repo folder: `wizard`). Read this before editing game code.
 
 ## Quick summary
 
-- **Game name:** Starwarden (browser title in `index.html`; story/instructions screens use the name in UI copy)
+- **Game name:** The Starwarden (browser title in `index.html`; story/instructions screens use the name in UI copy)
 - **Stack:** Phaser 4, React 19, TypeScript, Vite
 - **Genre:** 2D side-scrolling platformer — collect starlights to push the sky back from 50% darkness to clear
 - **Main gameplay file:** `src/game/scenes/Game.ts`
@@ -240,7 +240,7 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 - **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, then darkness meter. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
 - **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`scene.restart()`).
-- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard loops `wizard-jump` with a vertical tween, centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
+- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the platform surface under their column, then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
 - **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); no scene change and no red overlay
 
 ---
@@ -260,12 +260,13 @@ Patrol enemies on platform runs; contact adds darkness (no HP system).
 | `MURKLING_SPAWN_INTERVAL_MS` | 3000 | Automatic murkling spawn interval |
 | `MURKLING_INITIAL_COUNT` | 10 | Murklings on screen at level start |
 | `MIN_GROUND_MURKLING_COUNT` | 3 | Ground-row murklings guaranteed at level start |
+| `MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD` | 144 | Min horizontal distance (px) from wizard when spawning |
 | `MURKLING_DIE_FPS` | 12 | Die animation frame rate |
 
 - **Sprite:** `murkling/murkling-sheet.png` (texture key `murkling`, 8×2 grid of 32×32 cells); loops `murkling-walk` while patrolling
 - **Die:** `murkling-die` animation uses row 1 of the same sheet (frames 8–15); plays on fireball hit, then sprite is removed
 - **When:** **10** murklings at level start (**3** guaranteed on the ground row, rest random), then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
-- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell
+- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
 - **Behavior:** Patrol between run edges; platform collider; flip at bounds
 - **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
 - **Fireball:** Enter throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
@@ -356,9 +357,10 @@ Run speed and boosted jump apply in air while Ctrl + direction remain held.
 | `WIZARD_ATTACK_FIREBALL_DELAY_MS` | 250 | Delay before fireball spawns |
 | `FIREBALL_SPEED` | 420 | Horizontal speed (px/s) |
 | `FIREBALL_DISPLAY_SIZE` | 20 | On-screen fireball diameter |
+| `FIREBALL_GROUND_MAX_RANGE` | 480 | Max horizontal travel when fired on the ground (px) |
 
 - **Enter** plays `wizard-attack` (locks movement/anim until complete), then spawns a `fireball` projectile in facing direction
-- Fireballs destroy murklings on overlap and despawn on platform hit or leaving world bounds
+- Fireballs destroy murklings on overlap and despawn on platform hit or leaving world bounds; ground shots also despawn after **480px** horizontal travel
 - Depth 19 (above murklings at 18, below player at 20)
 
 ### Movement flow

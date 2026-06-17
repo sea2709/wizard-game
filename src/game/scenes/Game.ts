@@ -1,4 +1,4 @@
-import { Input, Scene } from 'phaser';
+import { Input, Math as PhaserMath, Scene } from 'phaser';
 import {
     MURKLING_DARKNESS_SPIKE,
     MURKLING_DISPLAY_SIZE,
@@ -39,6 +39,7 @@ import {
 } from '../world/murklingSpawns';
 import {
     FIREBALL_DISPLAY_SIZE,
+    FIREBALL_GROUND_MAX_RANGE,
     FIREBALL_SPEED,
     FIREBALL_SPAWN_OFFSET_X,
     FIREBALL_SPAWN_OFFSET_Y,
@@ -73,6 +74,12 @@ const PLAYER_DRAG_X = 1400;
 const ARCADE_GRAVITY = 800;
 const WALK_JUMP_ROWS = 5;
 const RUN_JUMP_ROWS = 6;
+const VICTORY_JUMP_FRAMES = 5;
+const VICTORY_JUMP_HEIGHT = WALK_JUMP_ROWS * TILE_HEIGHT;
+/** Match walk-jump physics timing (not the 12fps anim length) for a natural celebration bounce. */
+const VICTORY_JUMP_ASCENT_MS = Math.round(Math.sqrt((2 * VICTORY_JUMP_HEIGHT) / ARCADE_GRAVITY) * 1000);
+const VICTORY_JUMP_DURATION_MS = VICTORY_JUMP_ASCENT_MS * 2;
+const VICTORY_JUMP_FRAME_RATE = (VICTORY_JUMP_FRAMES / VICTORY_JUMP_DURATION_MS) * 1000;
 const JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * WALK_JUMP_ROWS * TILE_HEIGHT));
 const RUN_JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * RUN_JUMP_ROWS * TILE_HEIGHT));
 const BACKGROUND_SCROLL_FACTORS = [0.1, 0.25, 0.45, 0.65];
@@ -124,6 +131,7 @@ export class Game extends Scene
     hudDarknessPercent = -1;
     isVictoryCelebration = false;
     victoryGroundY = 0;
+    victoryJumpTween?: Phaser.Tweens.Tween;
     isPaused = false;
     pauseMenu?: Phaser.GameObjects.Container;
 
@@ -499,6 +507,12 @@ export class Game extends Scene
         fireball.setVelocityX(direction * FIREBALL_SPEED);
         fireball.body.setAllowGravity(false);
         fireball.setCollideWorldBounds(true);
+
+        if (this.groundedFrames >= 1)
+        {
+            fireball.setData('spawnX', x);
+            fireball.setData('maxRange', FIREBALL_GROUND_MAX_RANGE);
+        }
     }
 
     updateFireballs ()
@@ -506,6 +520,18 @@ export class Game extends Scene
         for (const fireballObject of this.fireballs.getChildren())
         {
             const fireball = fireballObject as Phaser.Physics.Arcade.Sprite;
+            const maxRange = fireball.getData('maxRange') as number | undefined;
+
+            if (maxRange !== undefined)
+            {
+                const spawnX = fireball.getData('spawnX') as number;
+
+                if (Math.abs(fireball.x - spawnX) >= maxRange)
+                {
+                    fireball.destroy();
+                    continue;
+                }
+            }
 
             if (fireball.x < -FIREBALL_DISPLAY_SIZE || fireball.x > this.worldWidth + FIREBALL_DISPLAY_SIZE)
             {
@@ -594,7 +620,12 @@ export class Game extends Scene
 
     spawnGroundMurkling ()
     {
-        const spawn = pickRandomGroundMurklingSpawn(worldMap, this.getActiveMurklingSpawnKeys());
+        const spawn = pickRandomGroundMurklingSpawn(
+            worldMap,
+            this.getActiveMurklingSpawnKeys(),
+            Math.random,
+            this.player.x
+        );
 
         if (!spawn)
         {
@@ -606,7 +637,12 @@ export class Game extends Scene
 
     spawnRandomMurkling ()
     {
-        const spawn = pickRandomMurklingSpawn(worldMap, this.getActiveMurklingSpawnKeys());
+        const spawn = pickRandomMurklingSpawn(
+            worldMap,
+            this.getActiveMurklingSpawnKeys(),
+            Math.random,
+            this.player.x
+        );
 
         if (!spawn)
         {
@@ -851,25 +887,68 @@ export class Game extends Scene
     startVictoryCelebration ()
     {
         this.isVictoryCelebration = true;
-        this.victoryGroundY = this.player.y;
+        this.victoryGroundY = this.getPlatformSurfaceYAt(this.player.x, this.player.y);
+        this.player.setY(this.victoryGroundY);
         this.player.off('animationcomplete-wizard-jump', this.onVictoryJumpComplete, this);
         this.player.on('animationcomplete-wizard-jump', this.onVictoryJumpComplete, this);
-        this.playVictoryJump();
-
-        this.tweens.add({
-            targets: this.player,
-            y: this.victoryGroundY - WALK_JUMP_ROWS * TILE_HEIGHT * 0.4,
-            duration: 380,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Quad.easeOut'
-        });
+        this.playVictoryJumpCycle();
     }
 
-    playVictoryJump ()
+    getPlatformSurfaceYAt (worldX: number, feetY: number): number
     {
-        this.playerAnimState = 'idle';
-        this.setPlayerAnimation('jump');
+        const col = PhaserMath.Clamp(
+            Math.floor(worldX / TILE_WIDTH),
+            0,
+            WORLD_MAP_COLS - 1
+        );
+        const footTolerance = TILE_HEIGHT;
+        let surfaceY: number | null = null;
+
+        for (let row = 0; row < WORLD_MAP_ROWS; row++)
+        {
+            if (worldMap[row][col] !== CELL_PLATFORM)
+            {
+                continue;
+            }
+
+            const platformSurfaceY = tileSurfaceY(row);
+
+            if (platformSurfaceY <= feetY + footTolerance)
+            {
+                if (surfaceY === null || platformSurfaceY > surfaceY)
+                {
+                    surfaceY = platformSurfaceY;
+                }
+            }
+        }
+
+        return surfaceY ?? tileSurfaceY(WORLD_MAP_ROWS - 1);
+    }
+
+    playVictoryJumpCycle ()
+    {
+        if (!this.isVictoryCelebration)
+        {
+            return;
+        }
+
+        this.victoryJumpTween?.stop();
+        this.player.setY(this.victoryGroundY);
+        this.playerAnimState = 'jump';
+        this.player.anims.play({
+            key: 'wizard-jump',
+            frameRate: VICTORY_JUMP_FRAME_RATE,
+            repeat: 0
+        });
+        this.updatePlayerBody();
+
+        this.victoryJumpTween = this.tweens.add({
+            targets: this.player,
+            y: this.victoryGroundY - VICTORY_JUMP_HEIGHT,
+            duration: VICTORY_JUMP_ASCENT_MS,
+            yoyo: true,
+            ease: 'Quad.easeOut'
+        });
     }
 
     onVictoryJumpComplete ()
@@ -879,7 +958,7 @@ export class Game extends Scene
             return;
         }
 
-        this.playVictoryJump();
+        this.playVictoryJumpCycle();
     }
 
     togglePause ()

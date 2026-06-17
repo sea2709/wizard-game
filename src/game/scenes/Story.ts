@@ -1,6 +1,7 @@
 import { EventBus } from '../EventBus';
 import { Scene } from 'phaser';
 import { WIZARD_DISPLAY_HEIGHT, WIZARD_DISPLAY_WIDTH } from '../wizardCombatConfig';
+import { addMenuSceneBackground } from './menuSceneBackground';
 
 const STORY_WIZARD_SCALE = 1.5;
 
@@ -49,17 +50,7 @@ export class Story extends Scene
         const centerX = width / 2;
         const centerY = height / 2;
 
-        this.cameras.main.setBackgroundColor(0x120820);
-
-        if (this.textures.exists('bg-layer-1'))
-        {
-            const bg = this.add.tileSprite(centerX, centerY, width, height, 'bg-layer-1')
-                .setScrollFactor(0)
-                .setAlpha(0.35);
-            bg.setTileScale(Math.max(width / bg.width, height / bg.height));
-        }
-
-        this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.55);
+        addMenuSceneBackground(this);
 
         const panelWidth = 960;
         const panelHeight = 720;
