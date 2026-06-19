@@ -5,12 +5,12 @@ import {
     MURKLING_FRAME_SIZE,
     MURKLING_WALK_FPS,
     MURKLING_WALK_SHEET_FRAMES
-} from '../baddiesConfig';
+} from '../config/baddiesConfig';
 import {
     WIZARD_ATTACK_FPS,
     WIZARD_ATTACK_SHEET_FRAMES,
     WIZARD_DIE_SHEET_FRAMES
-} from '../wizardCombatConfig';
+} from '../config/wizardCombatConfig';
 
 const WIZARD_FRAME_WIDTH = 96;
 const WIZARD_FRAME_HEIGHT = 76;
@@ -49,9 +49,6 @@ export class Preloader extends Scene
     {
         //  Load the assets for the game - Replace with your own assets
         this.load.setPath('assets');
-
-        this.load.image('logo', 'logo.png');
-        this.load.image('star', 'star.png');
 
         this.load.image('bg-layer-1', 'background/1.png');
         this.load.image('bg-layer-2', 'background/2.png');

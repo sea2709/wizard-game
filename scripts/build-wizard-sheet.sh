@@ -22,8 +22,8 @@ prepare_cell() {
         -background none -gravity south -extent "${CELL_W}x${CELL_H}" "$out"
 }
 
-# Attack poses are authored smaller than idle; trim padding then scale to idle body height.
-prepare_attack_cell() {
+# Walk/run/jump/hurt/attack are authored smaller than idle; trim padding then scale to idle body height.
+prepare_idle_scaled_cell() {
     local src="$1"
     local out="$2"
     convert "$src" -trim +repage \
@@ -44,10 +44,11 @@ frames=(
 
 i=0
 for f in "${frames[@]}"; do
-  if [[ "$f" == 5_ATTACK_* ]]; then
-    prepare_attack_cell "$DIR/$f" "$TMPDIR/$(printf '%02d' "$i").png"
+  out="$TMPDIR/$(printf '%02d' "$i").png"
+  if [[ "$f" == 1_IDLE_* || "$f" == 7_DIE_* ]]; then
+    prepare_cell "$DIR/$f" "$out"
   else
-    prepare_cell "$DIR/$f" "$TMPDIR/$(printf '%02d' "$i").png"
+    prepare_idle_scaled_cell "$DIR/$f" "$out"
   fi
   i=$((i + 1))
 done

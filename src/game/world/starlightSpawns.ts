@@ -2,7 +2,7 @@ import {
     STARLIGHT_ARC_OFFSET,
     STARLIGHT_GROUND_OFFSET,
     STARLIGHT_JUMP_OFFSET
-} from '../starlightConfig';
+} from '../config/starlightConfig';
 import {
     WORLD_MAP_COLS,
     WORLD_MAP_ROWS,

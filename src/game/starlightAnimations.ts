@@ -7,7 +7,7 @@ import {
     STARLIGHT_PULSE_SCALE,
     STARLIGHT_TWINKLE_ALPHA_MIN,
     STARLIGHT_TWINKLE_MS
-} from './starlightConfig';
+} from './config/starlightConfig';
 
 function starlightSeed (col: number, row: number): number
 {

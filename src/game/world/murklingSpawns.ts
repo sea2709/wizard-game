@@ -1,4 +1,4 @@
-import { MIN_MURKLING_RUN_LENGTH, MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD } from '../baddiesConfig';
+import { MIN_MURKLING_RUN_LENGTH, MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD } from '../config/baddiesConfig';
 import {
     getReachablePlatformRuns,
     tileToWorld,

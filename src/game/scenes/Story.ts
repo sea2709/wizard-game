@@ -1,9 +1,23 @@
 import { EventBus } from '../EventBus';
-import { Scene } from 'phaser';
-import { WIZARD_DISPLAY_HEIGHT, WIZARD_DISPLAY_WIDTH } from '../wizardCombatConfig';
+import { Math as PhaserMath, Scene } from 'phaser';
+import { MURKLING_DISPLAY_SIZE } from '../config/baddiesConfig';
+import {
+    FIREBALL_DISPLAY_SIZE,
+    FIREBALL_SPAWN_OFFSET_X,
+    FIREBALL_SPAWN_OFFSET_Y,
+    FIREBALL_SPEED,
+    WIZARD_ATTACK_FIREBALL_DELAY_MS,
+    WIZARD_DISPLAY_HEIGHT,
+    WIZARD_DISPLAY_WIDTH
+} from '../config/wizardCombatConfig';
 import { addMenuSceneBackground } from './menuSceneBackground';
 
 const STORY_WIZARD_SCALE = 1.5;
+const STORY_MURKLING_SCALE = 1.5;
+
+const STORY_COMBAT_INTRO_DELAY_MS = 1400;
+const STORY_COMBAT_BETWEEN_ATTACKS_MS = 500;
+const STORY_COMBAT_LOOP_DELAY_MS = 1600;
 
 const STORY_PAGES = [
     [
@@ -38,6 +52,17 @@ export class Story extends Scene
     private hintText!: Phaser.GameObjects.Text;
     private nextButtonBackground!: Phaser.GameObjects.Rectangle;
     private nextButtonLabel!: Phaser.GameObjects.Text;
+    private wizard!: Phaser.GameObjects.Sprite;
+    private murklingLeft!: Phaser.GameObjects.Sprite;
+    private murklingRight!: Phaser.GameObjects.Sprite;
+
+    private characterY = 0;
+    private murklingSize = 0;
+    private combatDemoActive = false;
+    private activeFireball?: Phaser.GameObjects.Sprite;
+    private combatStepTimer?: Phaser.Time.TimerEvent;
+    private attackFireballTimer?: Phaser.Time.TimerEvent;
+    private attackCompleteTimer?: Phaser.Time.TimerEvent;
 
     constructor ()
     {
@@ -95,13 +120,32 @@ export class Story extends Scene
             wordWrap: { width: panelWidth - 96 }
         }).setOrigin(0.5, 0);
 
-        this.add.sprite(centerX, buttonY - 56, 'wizard')
+        this.characterY = buttonY - 56;
+        const wizardWidth = WIZARD_DISPLAY_WIDTH * STORY_WIZARD_SCALE;
+        const wizardHeight = WIZARD_DISPLAY_HEIGHT * STORY_WIZARD_SCALE;
+        this.murklingSize = MURKLING_DISPLAY_SIZE * STORY_MURKLING_SCALE;
+        const murklingOffset = wizardWidth / 2 + this.murklingSize / 2 + 28;
+
+        this.wizard = this.add.sprite(centerX, this.characterY, 'wizard')
             .setOrigin(0.5, 1)
-            .setDisplaySize(
-                WIZARD_DISPLAY_WIDTH * STORY_WIZARD_SCALE,
-                WIZARD_DISPLAY_HEIGHT * STORY_WIZARD_SCALE
-            )
+            .setDisplaySize(wizardWidth, wizardHeight)
+            .setDepth(2)
             .play('wizard-idle');
+
+        this.murklingLeft = this.add.sprite(centerX - murklingOffset, this.characterY, 'murkling')
+            .setOrigin(0.5, 1)
+            .setDisplaySize(this.murklingSize, this.murklingSize)
+            .setDepth(1)
+            .play('murkling-walk')
+            .setVisible(false);
+
+        this.murklingRight = this.add.sprite(centerX + murklingOffset, this.characterY, 'murkling')
+            .setOrigin(0.5, 1)
+            .setDisplaySize(this.murklingSize, this.murklingSize)
+            .setFlipX(true)
+            .setDepth(1)
+            .play('murkling-walk')
+            .setVisible(false);
 
         this.input.keyboard!.on('keydown-ENTER', () => this.advance());
         this.input.keyboard!.on('keydown-SPACE', () => this.advance());
@@ -118,6 +162,20 @@ export class Story extends Scene
 
         this.bodyText.setText(STORY_PAGES[index].join('\n'));
 
+        const isCombatPage = index === STORY_PAGES.length - 1;
+
+        if (isCombatPage)
+        {
+            this.resetMurklings();
+            this.startCombatDemo();
+        }
+        else
+        {
+            this.stopCombatDemo();
+            this.murklingLeft.setVisible(false);
+            this.murklingRight.setVisible(false);
+        }
+
         const isLastPage = index === STORY_PAGES.length - 1;
         this.nextButtonLabel.setText(isLastPage ? 'Continue' : 'Next');
         this.hintText.setText(
@@ -125,6 +183,232 @@ export class Story extends Scene
                 ? 'Enter or Space when you\'re ready'
                 : `Page ${index + 1} of ${STORY_PAGES.length} — Enter or Space to continue`
         );
+    }
+
+    startCombatDemo ()
+    {
+        this.stopCombatDemo();
+        this.combatDemoActive = true;
+        this.scheduleCombatStep(STORY_COMBAT_INTRO_DELAY_MS, () => this.runCombatCycle());
+    }
+
+    stopCombatDemo ()
+    {
+        this.combatDemoActive = false;
+        this.combatStepTimer?.remove();
+        this.combatStepTimer = undefined;
+        this.clearWizardAttackTimers();
+        this.murklingLeft.off('animationcomplete-murkling-die');
+        this.murklingRight.off('animationcomplete-murkling-die');
+        this.destroyActiveFireball();
+        this.wizard.anims.play('wizard-idle');
+        this.wizard.setFlipX(false);
+    }
+
+    clearWizardAttackHandlers ()
+    {
+        this.attackCompleteTimer?.remove();
+        this.attackCompleteTimer = undefined;
+        this.wizard.off('animationcomplete-wizard-attack', this.returnWizardToIdleAfterAttack, this);
+    }
+
+    clearWizardAttackTimers ()
+    {
+        this.clearWizardAttackHandlers();
+        this.attackFireballTimer?.remove();
+        this.attackFireballTimer = undefined;
+    }
+
+    returnWizardToIdleAfterAttack ()
+    {
+        if (!this.combatDemoActive)
+        {
+            return;
+        }
+
+        this.clearWizardAttackHandlers();
+        this.wizard.anims.play('wizard-idle');
+    }
+
+    scheduleCombatStep (delayMs: number, callback: () => void)
+    {
+        this.combatStepTimer?.remove();
+        this.combatStepTimer = this.time.delayedCall(delayMs, () =>
+        {
+            this.combatStepTimer = undefined;
+
+            if (this.combatDemoActive)
+            {
+                callback();
+            }
+        });
+    }
+
+    runCombatCycle ()
+    {
+        if (!this.combatDemoActive)
+        {
+            return;
+        }
+
+        this.resetMurklings();
+        this.attackMurkling(this.murklingLeft, true, () =>
+        {
+            this.scheduleCombatStep(STORY_COMBAT_BETWEEN_ATTACKS_MS, () =>
+            {
+                this.attackMurkling(this.murklingRight, false, () =>
+                {
+                    this.scheduleCombatStep(STORY_COMBAT_LOOP_DELAY_MS, () => this.runCombatCycle());
+                });
+            });
+        });
+    }
+
+    attackMurkling (
+        murkling: Phaser.GameObjects.Sprite,
+        faceLeft: boolean,
+        onComplete: () => void
+    )
+    {
+        if (!this.combatDemoActive || !murkling.visible)
+        {
+            onComplete();
+            return;
+        }
+
+        this.wizard.setFlipX(faceLeft);
+        this.clearWizardAttackTimers();
+        this.wizard.anims.play('wizard-attack');
+
+        this.attackFireballTimer = this.time.delayedCall(WIZARD_ATTACK_FIREBALL_DELAY_MS, () =>
+        {
+            this.attackFireballTimer = undefined;
+
+            if (!this.combatDemoActive)
+            {
+                return;
+            }
+
+            this.launchFireballAt(murkling, () =>
+            {
+                this.killStoryMurkling(murkling, onComplete);
+            });
+        });
+
+        this.wizard.once('animationcomplete-wizard-attack', this.returnWizardToIdleAfterAttack, this);
+
+        const attackAnim = this.anims.get('wizard-attack');
+
+        if (attackAnim)
+        {
+            this.attackCompleteTimer = this.time.delayedCall(attackAnim.duration + 16, () =>
+            {
+                this.attackCompleteTimer = undefined;
+                this.returnWizardToIdleAfterAttack();
+            });
+        }
+    }
+
+    launchFireballAt (target: Phaser.GameObjects.Sprite, onHit: () => void)
+    {
+        const direction = this.wizard.flipX ? -1 : 1;
+        const spawnOffsetX = FIREBALL_SPAWN_OFFSET_X * STORY_WIZARD_SCALE;
+        const spawnOffsetY = FIREBALL_SPAWN_OFFSET_Y * STORY_WIZARD_SCALE;
+        const fireballSize = FIREBALL_DISPLAY_SIZE * STORY_WIZARD_SCALE;
+        const startX = this.wizard.x + direction * spawnOffsetX;
+        const startY = this.wizard.y + spawnOffsetY;
+        const endX = target.x;
+        const endY = target.y - this.murklingSize * 0.45;
+        const distance = PhaserMath.Distance.Between(startX, startY, endX, endY);
+        const durationMs = (distance / FIREBALL_SPEED) * 1000;
+
+        this.destroyActiveFireball();
+
+        const fireball = this.add.sprite(startX, startY, 'fireball')
+            .setDisplaySize(fireballSize, fireballSize)
+            .setDepth(3);
+
+        this.activeFireball = fireball;
+
+        this.tweens.add({
+            targets: fireball,
+            x: endX,
+            y: endY,
+            duration: durationMs,
+            ease: 'Linear',
+            onComplete: () =>
+            {
+                if (this.activeFireball === fireball)
+                {
+                    this.activeFireball = undefined;
+                }
+
+                fireball.destroy();
+
+                if (this.combatDemoActive)
+                {
+                    onHit();
+                }
+            }
+        });
+    }
+
+    killStoryMurkling (murkling: Phaser.GameObjects.Sprite, onComplete: () => void)
+    {
+        if (!murkling.visible)
+        {
+            onComplete();
+            return;
+        }
+
+        let finished = false;
+
+        const finish = () =>
+        {
+            if (finished)
+            {
+                return;
+            }
+
+            finished = true;
+            murkling.off('animationcomplete-murkling-die', finish);
+            murkling.setVisible(false);
+            onComplete();
+        };
+
+        murkling.anims.play('murkling-die');
+        murkling.once('animationcomplete-murkling-die', finish);
+
+        const dieAnim = this.anims.get('murkling-die');
+
+        if (dieAnim)
+        {
+            this.time.delayedCall(dieAnim.duration + 16, finish);
+        }
+    }
+
+    resetMurklings ()
+    {
+        for (const murkling of [ this.murklingLeft, this.murklingRight ])
+        {
+            murkling.setVisible(true);
+            murkling.anims.play('murkling-walk');
+        }
+
+        this.murklingLeft.setFlipX(false);
+        this.murklingRight.setFlipX(true);
+    }
+
+    destroyActiveFireball ()
+    {
+        if (!this.activeFireball)
+        {
+            return;
+        }
+
+        this.tweens.killTweensOf(this.activeFireball);
+        this.activeFireball.destroy();
+        this.activeFireball = undefined;
     }
 
     advance ()
@@ -145,6 +429,7 @@ export class Story extends Scene
             return;
         }
 
+        this.stopCombatDemo();
         this.scene.start('Instructions');
     }
 

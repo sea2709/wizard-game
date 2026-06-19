@@ -5,7 +5,7 @@ import {
     PLANT_1_DISPLAY_HEIGHT,
     PLANT_1_HEIGHT_JITTER,
     PLANT_SPAWN_SAFE_COLS
-} from '../plantsConfig';
+} from '../config/plantsConfig';
 import { WORLD_MAP_COLS, WORLD_MAP_ROWS, type WorldMap } from './worldMap';
 
 export type PlantSpawn = {

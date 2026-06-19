@@ -10,8 +10,8 @@ const INSTRUCTION_LINES = [
     '',
     'Wander        ← →',
     'Sprint        Shift + ← →',
-    'Leap          ↑ or Space',
-    'Attack        Enter',
+    'Leap          ↑',
+    'Attack        Space',
     '',
     'Murklings lurk on the platforms — bump one and the sky',
     'gets moodier. Toast them with a fireball instead!'

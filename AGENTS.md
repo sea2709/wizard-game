@@ -240,7 +240,7 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 - **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, then darkness meter. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
 - **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`scene.restart()`).
-- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the platform surface under their column, then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
+- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
 - **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); no scene change and no red overlay
 
 ---
@@ -261,15 +261,18 @@ Patrol enemies on platform runs; contact adds darkness (no HP system).
 | `MURKLING_INITIAL_COUNT` | 10 | Murklings on screen at level start |
 | `MIN_GROUND_MURKLING_COUNT` | 3 | Ground-row murklings guaranteed at level start |
 | `MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD` | 144 | Min horizontal distance (px) from wizard when spawning |
+| `MURKLING_WIZARD_DIRECTION_BIAS` | 0.7 | Probability murklings face the wizard on spawn / edge turn / jump-over |
+| `MURKLING_JUMP_OVER_CLEARANCE_PX` | 12 | Min vertical gap (wizard feet above murkling feet) for jump-over turn |
+| `MURKLING_JUMP_OVER_WINDOW_MS` | 600 | Ms after airborne cross to allow a jump-over direction roll after landing |
 | `MURKLING_DIE_FPS` | 12 | Die animation frame rate |
 
 - **Sprite:** `murkling/murkling-sheet.png` (texture key `murkling`, 8×2 grid of 32×32 cells); loops `murkling-walk` while patrolling
 - **Die:** `murkling-die` animation uses row 1 of the same sheet (frames 8–15); plays on fireball hit, then sprite is removed
 - **When:** **10** murklings at level start (**3** guaranteed on the ground row, rest random), then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
 - **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
-- **Behavior:** Patrol between run edges; platform collider; flip at bounds
+- **Behavior:** Patrol between run edges on platform collider; on spawn, when turning at bounds, and when the wizard **jumps over** (airborne, feet above murkling, landed on the other side or murkling was walking away), **70%** chance (`MURKLING_WIZARD_DIRECTION_BIAS`) to walk toward the wizard’s X if valid on the run, otherwise classic bounce / midpoint-based / keep-current fallback; direction unchanged while the wizard walks past on the ground
 - **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
-- **Fireball:** Enter throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
+- **Fireball:** Space throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
 - **Depth:** 18 (above platforms, below player)
 
 ---
@@ -315,10 +318,10 @@ Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox i
 | Input | Action |
 |-------|--------|
 | Left / Right (hold) | Move horizontally |
-| Ctrl + Left / Right (hold) | Run (faster speed + run animation) |
-| Up or Space (press) | Jump (higher and farther if running) |
+| Shift + Left / Right (hold) | Run (faster speed + run animation) |
+| Up (press) | Jump (higher and farther if running) |
 | Esc (press) | Pause / resume — opens menu with **Resume** and **New Game** |
-| Enter (press) | Throw a fireball (wizard-attack animation) |
+| Space (press) | Throw a fireball (wizard-attack animation) |
 
 ### Ground / air detection
 
@@ -337,14 +340,14 @@ Debounced to avoid landing flicker:
 | Priority | State | Animation | Condition |
 |----------|-------|-----------|-----------|
 | 1 | hurt | `wizard-hurt` | murkling hit — locks until animation completes |
-| 2 | attack | `wizard-attack` | Enter — locks until animation completes; spawns fireball |
+| 2 | attack | `wizard-attack` | Space — locks until animation completes; spawns fireball |
 | — | die | `wizard-die` | darkness game over — locks until scene ends |
 | 2 | jump | `wizard-jump` | `inAir` |
 | 3 | run | `wizard-run` | grounded, Shift + direction held |
 | 4 | walk | `wizard-walk` | grounded, direction held or coasting (`|velocityX| > 8`) |
 | 5 | idle | `wizard-idle` | grounded, no input and not coasting |
 
-Run speed and boosted jump apply in air while Ctrl + direction remain held.
+Run speed and boosted jump apply in air while Shift + direction remain held.
 
 ### Combat (`wizardCombatConfig.ts`)
 
@@ -359,7 +362,7 @@ Run speed and boosted jump apply in air while Ctrl + direction remain held.
 | `FIREBALL_DISPLAY_SIZE` | 20 | On-screen fireball diameter |
 | `FIREBALL_GROUND_MAX_RANGE` | 480 | Max horizontal travel when fired on the ground (px) |
 
-- **Enter** plays `wizard-attack` (locks movement/anim until complete), then spawns a `fireball` projectile in facing direction
+- **Space** plays `wizard-attack` (locks movement/anim until complete), then spawns a `fireball` projectile in facing direction
 - Fireballs destroy murklings on overlap and despawn on platform hit or leaving world bounds; ground shots also despawn after **480px** horizontal travel
 - Depth 19 (above murklings at 18, below player at 20)
 
@@ -413,7 +416,7 @@ flowchart TD
 ### Wizard sprite notes
 
 - Single spritesheet `wizard-sheet.png` (480×532, 5×7 grid of 96×76 cells); source PNGs in `wizard/` kept for editing — rebuild with `scripts/build-wizard-sheet.sh`
-- Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); attack row is trimmed and upscaled to idle body height in `scripts/build-wizard-sheet.sh`
+- Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); walk/run/jump/hurt/attack rows are trimmed and upscaled to idle body height in `scripts/build-wizard-sheet.sh` (idle is the reference; die keeps authored collapse)
 - Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`); display locked to 96×76 via `WIZARD_DISPLAY_WIDTH` / `WIZARD_DISPLAY_HEIGHT`
 - Procedural `fireball` texture for projectiles
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**

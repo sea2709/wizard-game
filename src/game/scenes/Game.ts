@@ -7,8 +7,11 @@ import {
     MURKLING_PATROL_SPEED,
     MURKLING_SPAWN_INTERVAL_MS,
     MURKLING_INITIAL_COUNT,
-    MIN_GROUND_MURKLING_COUNT
-} from '../baddiesConfig';
+    MIN_GROUND_MURKLING_COUNT,
+    MURKLING_JUMP_OVER_CLEARANCE_PX,
+    MURKLING_JUMP_OVER_WINDOW_MS,
+    resolveMurklingPatrolDirection
+} from '../config/baddiesConfig';
 import { EventBus } from '../EventBus';
 import { DEBUG_PHYSICS, DEBUG_WORLD_GRID } from '../debug';
 import {
@@ -28,8 +31,8 @@ import {
     STARLIGHT_DARKNESS_RELIEF,
     STARLIGHT_INITIAL_COUNT,
     STARLIGHT_SPAWN_INTERVAL_MS
-} from '../starlightConfig';
-import { TREE_DEPTH } from '../elementsConfig';
+} from '../config/starlightConfig';
+import { TREE_DEPTH } from '../config/elementsConfig';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
 import {
     murklingSpawnKey,
@@ -46,7 +49,7 @@ import {
     WIZARD_ATTACK_FIREBALL_DELAY_MS,
     WIZARD_DISPLAY_HEIGHT,
     WIZARD_DISPLAY_WIDTH
-} from '../wizardCombatConfig';
+} from '../config/wizardCombatConfig';
 import { createPlatformLayer } from '../world/platformLayer';
 import { pickRandomStarlightSpawn, starlightSpawnKey, type StarlightSpawn } from '../world/starlightSpawns';
 import {
@@ -97,7 +100,6 @@ export class Game extends Scene
     spaceKey: Phaser.Input.Keyboard.Key;
     shiftKey: Phaser.Input.Keyboard.Key;
     escKey: Phaser.Input.Keyboard.Key;
-    enterKey: Phaser.Input.Keyboard.Key;
     playerAnimState: PlayerAnimState = 'idle';
     isHurt = false;
     isAttacking = false;
@@ -312,7 +314,6 @@ export class Game extends Scene
         this.spaceKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SPACE);
         this.shiftKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SHIFT);
         this.escKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ESC);
-        this.enterKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ENTER);
 
         if (import.meta.env.DEV)
         {
@@ -669,12 +670,24 @@ export class Game extends Scene
 
         const patrolMinX = startCol * TILE_WIDTH + TILE_WIDTH / 2;
         const patrolMaxX = endCol * TILE_WIDTH + TILE_WIDTH / 2;
-        const patrolRight = col < startCol + (endCol - startCol) / 2;
+        const fallbackMoveRight = col < startCol + (endCol - startCol) / 2;
+        const moveRight = resolveMurklingPatrolDirection(
+            x,
+            this.player.x,
+            patrolMinX,
+            patrolMaxX,
+            fallbackMoveRight
+        );
 
         murkling.setData('patrolMinX', patrolMinX);
         murkling.setData('patrolMaxX', patrolMaxX);
-        murkling.setFlipX(!patrolRight);
-        murkling.setVelocityX(patrolRight ? MURKLING_PATROL_SPEED : -MURKLING_PATROL_SPEED);
+        murkling.setData(
+            'wizardSide',
+            this.player.x < x - 8 ? -1 : this.player.x > x + 8 ? 1 : 0
+        );
+        murkling.setData('jumpOverHandled', false);
+        murkling.setData('jumpOverPendingAt', 0);
+        this.setMurklingDirection(murkling, moveRight);
 
         const bodyWidth = MURKLING_DISPLAY_SIZE * 0.7;
         const bodyHeight = MURKLING_DISPLAY_SIZE * 0.55;
@@ -686,8 +699,18 @@ export class Game extends Scene
         );
     }
 
+    setMurklingDirection (murkling: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody, moveRight: boolean)
+    {
+        murkling.setFlipX(!moveRight);
+        murkling.setVelocityX(moveRight ? MURKLING_PATROL_SPEED : -MURKLING_PATROL_SPEED);
+    }
+
     updateMurklings ()
     {
+        const wizardX = this.player.x;
+        const wizardY = this.player.y;
+        const wizardInAir = !this.player.body.onFloor();
+
         for (const murklingObject of this.murklings.getChildren())
         {
             const murkling = murklingObject as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
@@ -699,19 +722,86 @@ export class Game extends Scene
 
             const patrolMinX = murkling.getData('patrolMinX') as number;
             const patrolMaxX = murkling.getData('patrolMaxX') as number;
+            const prevWizardSide = murkling.getData('wizardSide') as number ?? 0;
+            const wizardOnRight = wizardX > murkling.x + 8;
+            const wizardOnLeft = wizardX < murkling.x - 8;
+            const wizardSide = wizardOnRight ? 1 : wizardOnLeft ? -1 : 0;
+            const movingRight = !murkling.flipX;
+            const movingAwayFromWizard =
+                (wizardOnRight && !movingRight) || (wizardOnLeft && movingRight);
+            const wizardAbove = wizardY < murkling.y - MURKLING_JUMP_OVER_CLEARANCE_PX;
+            const crossedWizard = prevWizardSide * wizardSide < 0;
+            const jumpOverPendingAt = murkling.getData('jumpOverPendingAt') as number ?? 0;
+            const jumpOverWindowOpen =
+                jumpOverPendingAt > 0
+                && this.time.now - jumpOverPendingAt < MURKLING_JUMP_OVER_WINDOW_MS;
+
+            if (wizardInAir && crossedWizard)
+            {
+                murkling.setData('jumpOverPendingAt', this.time.now);
+            }
+
+            const shouldConsiderJumpOver =
+                (wizardInAir && crossedWizard)
+                || (wizardInAir && wizardAbove && movingAwayFromWizard)
+                || (jumpOverWindowOpen && movingAwayFromWizard);
+
+            if (shouldConsiderJumpOver)
+            {
+                const jumpOverHandled = murkling.getData('jumpOverHandled') as boolean;
+
+                if (!jumpOverHandled)
+                {
+                    const towardMoveRight = wizardSide !== 0 ? wizardSide > 0 : null;
+                    const moveRight = resolveMurklingPatrolDirection(
+                        murkling.x,
+                        wizardX,
+                        patrolMinX,
+                        patrolMaxX,
+                        movingRight,
+                        towardMoveRight
+                    );
+
+                    this.setMurklingDirection(murkling, moveRight);
+                    murkling.setData('jumpOverHandled', true);
+                }
+            }
+            else if (!jumpOverWindowOpen && Math.abs(wizardX - murkling.x) > MURKLING_DISPLAY_SIZE * 2)
+            {
+                murkling.setData('jumpOverHandled', false);
+                murkling.setData('jumpOverPendingAt', 0);
+            }
+
+            murkling.setData('wizardSide', wizardSide);
 
             if (murkling.x <= patrolMinX)
             {
                 murkling.x = patrolMinX;
-                murkling.setFlipX(false);
+                const moveRight = resolveMurklingPatrolDirection(
+                    murkling.x,
+                    wizardX,
+                    patrolMinX,
+                    patrolMaxX,
+                    true
+                );
+                this.setMurklingDirection(murkling, moveRight);
             }
             else if (murkling.x >= patrolMaxX)
             {
                 murkling.x = patrolMaxX;
-                murkling.setFlipX(true);
+                const moveRight = resolveMurklingPatrolDirection(
+                    murkling.x,
+                    wizardX,
+                    patrolMinX,
+                    patrolMaxX,
+                    false
+                );
+                this.setMurklingDirection(murkling, moveRight);
             }
-
-            murkling.setVelocityX(murkling.flipX ? -MURKLING_PATROL_SPEED : MURKLING_PATROL_SPEED);
+            else
+            {
+                murkling.setVelocityX(murkling.flipX ? -MURKLING_PATROL_SPEED : MURKLING_PATROL_SPEED);
+            }
         }
     }
 
@@ -913,12 +1003,15 @@ export class Game extends Scene
 
             const platformSurfaceY = tileSurfaceY(row);
 
-            if (platformSurfaceY <= feetY + footTolerance)
+            // Nearest platform at or below the wizard (works when grounded or mid-air above a run).
+            if (platformSurfaceY < feetY - footTolerance)
             {
-                if (surfaceY === null || platformSurfaceY > surfaceY)
-                {
-                    surfaceY = platformSurfaceY;
-                }
+                continue;
+            }
+
+            if (surfaceY === null || platformSurfaceY < surfaceY)
+            {
+                surfaceY = platformSurfaceY;
             }
         }
 
@@ -1284,9 +1377,8 @@ export class Game extends Scene
         const velocityX = this.player.body.velocity.x;
         const isCoasting = !isMoving && isGrounded && Math.abs(velocityX) > 8;
 
-        const jumpPressed = Input.Keyboard.JustDown(this.cursors.up!)
-            || Input.Keyboard.JustDown(this.spaceKey);
-        const attackPressed = Input.Keyboard.JustDown(this.enterKey);
+        const jumpPressed = Input.Keyboard.JustDown(this.cursors.up!);
+        const attackPressed = Input.Keyboard.JustDown(this.spaceKey);
 
         if (attackPressed)
         {
