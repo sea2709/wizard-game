@@ -1,4 +1,4 @@
-/** Seconds for darkness to rise from 0% to 100% when no starlights are collected. */
+/** Legacy/doc constant; live passive fill uses `DARKNESS_FILL_SECONDS` in `seasonConfig.ts`. */
 export const DARKNESS_FILL_SECONDS = 180;
 
 /** Sky darkness at level start (0 = clear, 1 = fully dark). */

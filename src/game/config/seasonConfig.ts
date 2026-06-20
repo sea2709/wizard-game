@@ -86,16 +86,16 @@ export type SeasonSettings = {
     minGroundMurklingCount: number;
     strikerInitialCount: number;
     strikerSpawnChance: number;
+    /** Ms pause before a striker releases a bolt (lower = faster first shot). */
+    strikerWindupMs: number;
+    /** Ms between striker shots after a bolt is fired (lower = higher attack rate). */
+    strikerAttackCooldownMs: number;
+    /** Horizontal striker patrol speed (px/s); can exceed `murklingPatrolSpeed` in late seasons. */
+    strikerPatrolSpeed: number;
 };
 
 /** Horizontal range (px) for striker murklings on the same platform tier. */
 export const STRIKER_ATTACK_RANGE_PX = 320;
-
-/** Ms between striker shots after a bolt is fired. */
-export const STRIKER_ATTACK_COOLDOWN_MS = 2200;
-
-/** Brief pause before a striker releases a bolt. */
-export const STRIKER_WINDUP_MS = 400;
 
 /** Striker bolt travel speed (px/s). */
 export const STRIKER_PROJECTILE_SPEED = 280;
@@ -112,6 +112,9 @@ export const STRIKER_TINT = 0x9966cc;
 /** On-screen striker bolt diameter (pixels). */
 export const MURKLING_BOLT_DISPLAY_SIZE = 16;
 
+/** Passive darkness rise: seconds from 0% to 100% with no counterplay (same every season). */
+export const DARKNESS_FILL_SECONDS = 180;
+
 const SPRING_SETTINGS: SeasonSettings = {
     season: 1,
     name: 'Spring',
@@ -119,7 +122,7 @@ const SPRING_SETTINGS: SeasonSettings = {
     transitionMessage: 'Summer heat rises — press Enter to continue',
     backgroundLayerKeys: SPRING_BACKGROUND_LAYERS,
     backgroundScrollFactors: SPRING_BACKGROUND_SCROLL_FACTORS,
-    darknessFillSeconds: 180,
+    darknessFillSeconds: DARKNESS_FILL_SECONDS,
     darknessStart: 0.5,
     starlightInitialCount: 5,
     starlightSpawnIntervalMs: 5000,
@@ -130,7 +133,10 @@ const SPRING_SETTINGS: SeasonSettings = {
     murklingInitialCount: 10,
     minGroundMurklingCount: 2,
     strikerInitialCount: 0,
-    strikerSpawnChance: 0
+    strikerSpawnChance: 0,
+    strikerWindupMs: 400,
+    strikerAttackCooldownMs: 2200,
+    strikerPatrolSpeed: 80
 };
 
 const SUMMER_SETTINGS: SeasonSettings = {
@@ -140,7 +146,7 @@ const SUMMER_SETTINGS: SeasonSettings = {
     transitionMessage: 'Fall shadows lengthen — press Enter to continue',
     backgroundLayerKeys: SUMMER_BACKGROUND_LAYERS,
     backgroundScrollFactors: SUMMER_BACKGROUND_SCROLL_FACTORS,
-    darknessFillSeconds: 160,
+    darknessFillSeconds: DARKNESS_FILL_SECONDS,
     darknessStart: 0.5,
     starlightInitialCount: 5,
     starlightSpawnIntervalMs: 5000,
@@ -151,7 +157,10 @@ const SUMMER_SETTINGS: SeasonSettings = {
     murklingInitialCount: 10,
     minGroundMurklingCount: 2,
     strikerInitialCount: 1,
-    strikerSpawnChance: 0.12
+    strikerSpawnChance: 0.12,
+    strikerWindupMs: 400,
+    strikerAttackCooldownMs: 2200,
+    strikerPatrolSpeed: 80
 };
 
 const FALL_SETTINGS: SeasonSettings = {
@@ -161,7 +170,7 @@ const FALL_SETTINGS: SeasonSettings = {
     transitionMessage: 'Winter cold deepens — press Enter to continue',
     backgroundLayerKeys: FALL_BACKGROUND_LAYERS,
     backgroundScrollFactors: FALL_BACKGROUND_SCROLL_FACTORS,
-    darknessFillSeconds: 140,
+    darknessFillSeconds: DARKNESS_FILL_SECONDS,
     darknessStart: 0.5,
     starlightInitialCount: 5,
     starlightSpawnIntervalMs: 5000,
@@ -172,7 +181,10 @@ const FALL_SETTINGS: SeasonSettings = {
     murklingInitialCount: 11,
     minGroundMurklingCount: 2,
     strikerInitialCount: 2,
-    strikerSpawnChance: 0.24
+    strikerSpawnChance: 0.24,
+    strikerWindupMs: 320,
+    strikerAttackCooldownMs: 1750,
+    strikerPatrolSpeed: 93
 };
 
 const WINTER_SETTINGS: SeasonSettings = {
@@ -182,7 +194,7 @@ const WINTER_SETTINGS: SeasonSettings = {
     transitionMessage: '',
     backgroundLayerKeys: WINTER_BACKGROUND_LAYERS,
     backgroundScrollFactors: WINTER_BACKGROUND_SCROLL_FACTORS,
-    darknessFillSeconds: 120,
+    darknessFillSeconds: DARKNESS_FILL_SECONDS,
     darknessStart: 0.5,
     starlightInitialCount: 5,
     starlightSpawnIntervalMs: 5000,
@@ -193,7 +205,10 @@ const WINTER_SETTINGS: SeasonSettings = {
     murklingInitialCount: 12,
     minGroundMurklingCount: 3,
     strikerInitialCount: 3,
-    strikerSpawnChance: 0.35
+    strikerSpawnChance: 0.35,
+    strikerWindupMs: 260,
+    strikerAttackCooldownMs: 1300,
+    strikerPatrolSpeed: 120
 };
 
 const SEASON_SETTINGS: Record<GameSeason, SeasonSettings> = {

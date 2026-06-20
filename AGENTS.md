@@ -233,10 +233,12 @@ Platforms stay at depth **10**. `Game.updateWorldEntityDepths()` runs each frame
 
 Per-season tuning lives in `src/game/config/seasonConfig.ts` (`getSeasonSettings(season)`). `Game` scene receives `{ season: 1 | 2 | 3 | 4 }` via `init()` on restart.
 
+**Passive darkness** is the same every season (`DARKNESS_FILL_SECONDS` = 180 → ~90s from 50% to 100% with no starlights). **Difficulty ramps via murklings/strikers** (speed, spawn rate, counts, contact spike, striker presence, striker attack rate).
+
 | Setting | Spring | Summer | Fall | Winter |
 |---------|--------|--------|------|--------|
 | `backgroundLayerKeys` | `bg-layer-1` … `4` | `bg-summer-layer-1` … `4` | `bg-fall-layer-5` … `1` (5 layers) | `bg-winter-layer-1` … `4` |
-| `darknessFillSeconds` | 180 | 160 | 140 | 120 |
+| `darknessFillSeconds` | 180 | 180 | 180 | 180 |
 | `darknessStart` | 0.5 | 0.5 (reset on season entry) | 0.5 | 0.5 |
 | `murklingDarknessSpike` | 0.08 | 0.09 | 0.10 | 0.11 |
 | `murklingPatrolSpeed` | 80 | 87 | 93 | 100 |
@@ -245,6 +247,9 @@ Per-season tuning lives in `src/game/config/seasonConfig.ts` (`getSeasonSettings
 | `minGroundMurklingCount` | 2 | 2 | 2 | 3 |
 | `strikerInitialCount` | 0 | 1 | 2 | 3 |
 | `strikerSpawnChance` | 0 | 0.12 | 0.24 | 0.35 |
+| `strikerWindupMs` | 400 | 400 | 320 | 260 |
+| `strikerAttackCooldownMs` | 2200 | 2200 | 1750 | 1300 |
+| `strikerPatrolSpeed` | 80 | 87 | 93 | 120 |
 
 - **Season clear (Spring–Fall):** darkness reaches 0% → interstitial **{SEASON} COMPLETE** → `regenerateWorldMap()` → `scene.restart({ season: N + 1 })`
 - **Winter clear:** darkness reaches 0% → final victory celebration
@@ -257,7 +262,7 @@ Shared starlight/HUD layout constants remain in `src/game/config/starlightConfig
 |----------|-------|---------|
 | `STARLIGHT_INITIAL_COUNT` | 5 | Starlights on screen at each season start |
 | `STARLIGHT_SPAWN_INTERVAL_MS` | 5000 | Auto-spawn interval; resets on collect |
-| `DARKNESS_FILL_SECONDS` | 180 | Spring passive rise (later seasons use `seasonConfig`) |
+| `DARKNESS_FILL_SECONDS` | 180 | Legacy in `starlightConfig.ts`; live value is `seasonConfig.DARKNESS_FILL_SECONDS` (180 all seasons) |
 | `HUD_DARKNESS_DEPTH` | 5 | Darkness overlay — above bg (0–3), below platforms (10) |
 | `HUD_TEXT_DEPTH` | 6 | Starlight counter + darkness meter — above darkness overlay, below platforms |
 | `HUD_DARKNESS_BAR_WIDTH` | 220 | Darkness meter track width (pixels) |
@@ -344,17 +349,20 @@ Patrol enemies on platform runs; contact adds darkness (no HP system). Season-sp
 |----------|--------|--------|------|--------|---------|
 | `strikerInitialCount` | 0 | 1 | 2 | 3 | Strikers at season start |
 | `strikerSpawnChance` | 0 | 0.12 | 0.24 | 0.35 | Timer spawn roll for strikers |
+| `strikerWindupMs` | 400 | 400 | 320 | 260 | Pause before firing (lower = faster first shot) |
+| `strikerAttackCooldownMs` | 2200 | 2200 | 1750 | 1300 | Cooldown after a shot (lower = higher attack rate) |
+| `strikerPatrolSpeed` | 80 | 87 | 93 | 120 | Striker patrol speed (px/s); Winter exceeds patrol murklings |
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `STRIKER_DISPLAY_SIZE` | 52 | On-screen sprite size |
 | `STRIKER_TINT` | `0x9966cc` | Purple tint on shared `murkling` sheet |
 | `STRIKER_ATTACK_RANGE_PX` | 320 | Horizontal attack range on same tier |
-| `STRIKER_WINDUP_MS` | 400 | Pause before firing |
-| `STRIKER_ATTACK_COOLDOWN_MS` | 2200 | Cooldown after a shot |
 | `STRIKER_PROJECTILE_SPEED` | 280 | Bolt speed (px/s) |
 | `STRIKER_PROJECTILE_DARKNESS_SPIKE` | 0.09 | Darkness added on bolt hit |
 | `MURKLING_BOLT_DISPLAY_SIZE` | 16 | On-screen bolt size |
+
+- **Attack rate:** While the wizard stays in range, cycle time is `strikerWindupMs` + `strikerAttackCooldownMs` (~2.6s Summer → ~2.1s Fall → ~1.6s Winter per striker).
 
 - **Visual:** Same `murkling` sheet as patrol type, tinted purple and slightly larger
 - **AI:** On the same platform tier and within range, stop patrol → windup → fire `murkling-bolt` (procedural texture in Preloader) toward the wizard → cooldown → resume patrol

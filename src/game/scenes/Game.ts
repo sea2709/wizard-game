@@ -12,13 +12,11 @@ import { DEBUG_PHYSICS, DEBUG_WORLD_GRID, DEFAULT_START_SEASON } from '../debug'
 import {
     getSeasonSettings,
     MURKLING_BOLT_DISPLAY_SIZE,
-    STRIKER_ATTACK_COOLDOWN_MS,
     STRIKER_ATTACK_RANGE_PX,
     STRIKER_DISPLAY_SIZE,
     STRIKER_PROJECTILE_DARKNESS_SPIKE,
     STRIKER_PROJECTILE_SPEED,
     STRIKER_TINT,
-    STRIKER_WINDUP_MS,
     TOTAL_SEASONS,
     type GameSeason,
     type MurklingType,
@@ -981,7 +979,9 @@ export class Game extends Scene
 
     setMurklingDirection (murkling: MurklingSprite, moveRight: boolean)
     {
-        const speed = this.seasonSettings.murklingPatrolSpeed;
+        const speed = murkling.murklingType === 'striker'
+            ? this.seasonSettings.strikerPatrolSpeed
+            : this.seasonSettings.murklingPatrolSpeed;
         const shouldFlipX = !moveRight;
 
         if (murkling.flipX !== shouldFlipX)
@@ -1142,11 +1142,11 @@ export class Game extends Scene
                 murkling.strikerState = 'patrol';
                 murkling.strikerWindupAt = 0;
             }
-            else if (now - murkling.strikerWindupAt >= STRIKER_WINDUP_MS)
+            else if (now - murkling.strikerWindupAt >= this.seasonSettings.strikerWindupMs)
             {
                 this.spawnStrikerBolt(murkling, wizardX, wizardY);
                 murkling.strikerState = 'cooldown';
-                murkling.strikerCooldownUntil = now + STRIKER_ATTACK_COOLDOWN_MS;
+                murkling.strikerCooldownUntil = now + this.seasonSettings.strikerAttackCooldownMs;
                 murkling.strikerWindupAt = 0;
             }
 
@@ -1174,9 +1174,10 @@ export class Game extends Scene
         }
         else
         {
+            const patrolSpeed = this.seasonSettings.strikerPatrolSpeed;
             this.ensureMurklingVelocityX(
                 murkling,
-                murkling.flipX ? -this.seasonSettings.murklingPatrolSpeed : this.seasonSettings.murklingPatrolSpeed
+                murkling.flipX ? -patrolSpeed : patrolSpeed
             );
         }
     }
