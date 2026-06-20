@@ -46,6 +46,7 @@ import {
     TREE_DEPTH,
     worldDepthFromFeetY
 } from '../config/elementsConfig';
+import { recordGameStarted, recordVictory, type RunStats } from '../stats/gameStats';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
 import {
     murklingSpawnKey,
@@ -112,6 +113,9 @@ type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die' | 'atta
 
 type GameSceneData = {
     season?: GameSeason;
+    isNewRun?: boolean;
+    runStarlightsCollected?: number;
+    runMurklingsDefeated?: number;
 };
 
 type StrikerState = 'patrol' | 'windup' | 'cooldown';
@@ -168,8 +172,11 @@ export class Game extends Scene
     hudSeasonLabel: Phaser.GameObjects.Text;
     gameOverMessage?: Phaser.GameObjects.Text;
     gameOverTitle?: Phaser.GameObjects.Text;
+    endGameRunStatsText?: Phaser.GameObjects.Text;
     darkness = 0.5;
     starlightsCollected = 0;
+    runStarlightsCollected = 0;
+    runMurklingsDefeated = 0;
     totalStarlights = 0;
     starlightOccupiedKeys = new Set<string>();
     murklingOccupiedKeys = new Set<string>();
@@ -197,6 +204,24 @@ export class Game extends Scene
     {
         this.currentSeason = data?.season ?? DEFAULT_START_SEASON;
         this.seasonSettings = getSeasonSettings(this.currentSeason);
+
+        if (data?.isNewRun === true)
+        {
+            this.runStarlightsCollected = 0;
+            this.runMurklingsDefeated = 0;
+            recordGameStarted();
+        }
+        else if (data?.isNewRun === false)
+        {
+            this.runStarlightsCollected = data.runStarlightsCollected ?? 0;
+            this.runMurklingsDefeated = data.runMurklingsDefeated ?? 0;
+        }
+        else
+        {
+            this.runStarlightsCollected = 0;
+            this.runMurklingsDefeated = 0;
+            recordGameStarted();
+        }
     }
 
     create ()
@@ -650,6 +675,7 @@ export class Game extends Scene
         murklingSprite.dying = true;
         murklingSprite.patrolVelocityX = 0;
         murkling.setVelocity(0, 0);
+        this.runMurklingsDefeated++;
 
         if (murkling.body)
         {
@@ -1266,6 +1292,7 @@ export class Game extends Scene
             }
 
             this.starlightsCollected++;
+            this.runStarlightsCollected++;
             this.darkness = Math.max(0, this.darkness - this.seasonSettings.starlightDarknessRelief);
 
             this.updateDarknessVisuals();
@@ -1351,7 +1378,12 @@ export class Game extends Scene
         }
 
         regenerateWorldMap();
-        this.scene.restart({ season: (this.currentSeason + 1) as GameSeason });
+        this.scene.restart({
+            season: (this.currentSeason + 1) as GameSeason,
+            isNewRun: false,
+            runStarlightsCollected: this.runStarlightsCollected,
+            runMurklingsDefeated: this.runMurklingsDefeated
+        });
     }
 
     hideSeasonTransitionMenu ()
@@ -1411,12 +1443,26 @@ export class Game extends Scene
             this.playerAnimState = 'idle';
             this.setPlayerAnimation('die');
             this.showEndScreenText('GAME OVER', 'The sky went dark...');
+            this.showEndGameStats({
+                starlightsCollected: this.runStarlightsCollected,
+                murklingsDefeated: this.runMurklingsDefeated
+            });
 
             return;
         }
 
         this.startVictoryCelebration();
+
+        recordVictory({
+            starlightsCollected: this.runStarlightsCollected,
+            murklingsDefeated: this.runMurklingsDefeated
+        });
+
         this.showEndScreenText('VICTORY', 'You saved the world from the darkness!');
+        this.showEndGameStats({
+            starlightsCollected: this.runStarlightsCollected,
+            murklingsDefeated: this.runMurklingsDefeated
+        });
     }
 
     freezeGameplay ()
@@ -1453,6 +1499,30 @@ export class Game extends Scene
             strokeThickness: 8,
             align: 'center'
         })
+            .setOrigin(0.5)
+            .setScrollFactor(0)
+            .setDepth(100);
+    }
+
+    showEndGameStats (run: RunStats)
+    {
+        const { width, height } = this.scale;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        this.endGameRunStatsText = this.add.text(
+            centerX,
+            centerY + 108,
+            `This run: ${run.starlightsCollected} starlights · ${run.murklingsDefeated} murklings`,
+            {
+                fontFamily: 'Arial Black',
+                fontSize: 26,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 5,
+                align: 'center'
+            }
+        )
             .setOrigin(0.5)
             .setScrollFactor(0)
             .setDepth(100);
@@ -1570,7 +1640,7 @@ export class Game extends Scene
     {
         this.isPaused = false;
         regenerateWorldMap();
-        this.scene.restart({ season: DEFAULT_START_SEASON });
+        this.scene.restart({ season: DEFAULT_START_SEASON, isNewRun: true });
     }
 
     showPauseMenu ()

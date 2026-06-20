@@ -283,8 +283,25 @@ Shared starlight/HUD layout constants remain in `src/game/config/starlightConfig
 - **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, darkness meter, **season label**. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
 - **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`regenerateWorldMap()` + restart at `DEFAULT_START_SEASON` from `debug.ts`).
-- **Win:** Winter darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
-- **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); no scene change and no red overlay
+- **Win:** Winter darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); **this run** stats below (starlights, murklings); no scene change
+- **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); **this run** stats below (same layout as victory; run totals are not added to lifetime); no scene change and no red overlay
+
+### Player stats (`src/game/stats/gameStats.ts`)
+
+Lifetime totals persist in `localStorage` under key `starwarden-lifetime-stats`.
+
+| Stat | When incremented |
+|------|------------------|
+| `gamesStarted` | Fresh run: Instructions → Game (`isNewRun: true`) or pause **New Game** |
+| `gamesWon` | Full 4-season victory (Winter cleared) |
+| `starlightsCollected` (lifetime) | Added from the winning run total on victory |
+| `murklingsDefeated` (lifetime) | Added from the winning run total on victory (fireball kills only) |
+
+**Per-run counters** (`runStarlightsCollected`, `runMurklingsDefeated` on `Game`) accumulate across all four seasons and are carried through season transitions via `GameSceneData` on `scene.restart()`. Per-season HUD starlight count still resets each season.
+
+API: `loadLifetimeStats()`, `saveLifetimeStats()`, `recordGameStarted()`, `recordVictory(run)`.
+
+End-game stats (win or lose) show **this run** starlights and murklings via `showEndGameStats()` in `Game.ts`. Lifetime totals remain in `localStorage` but are not shown in the UI.
 
 ---
 

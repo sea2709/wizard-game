@@ -162,6 +162,6 @@ export class Instructions extends Scene
             return;
         }
 
-        this.scene.start('Game');
+        this.scene.start('Game', { isNewRun: true });
     }
 }
