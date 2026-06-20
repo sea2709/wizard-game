@@ -8,9 +8,9 @@ import {
     resolveMurklingPatrolDirection
 } from '../config/baddiesConfig';
 import { EventBus } from '../EventBus';
-import { DEBUG_PHYSICS, DEBUG_WORLD_GRID } from '../debug';
+import { DEBUG_PHYSICS, DEBUG_WORLD_GRID, DEFAULT_START_SEASON } from '../debug';
 import {
-    getPhaseSettings,
+    getSeasonSettings,
     MURKLING_BOLT_DISPLAY_SIZE,
     STRIKER_ATTACK_COOLDOWN_MS,
     STRIKER_ATTACK_RANGE_PX,
@@ -19,11 +19,11 @@ import {
     STRIKER_PROJECTILE_SPEED,
     STRIKER_TINT,
     STRIKER_WINDUP_MS,
-    TOTAL_PHASES,
-    type GamePhase,
+    TOTAL_SEASONS,
+    type GameSeason,
     type MurklingType,
-    type PhaseSettings
-} from '../config/phaseConfig';
+    type SeasonSettings
+} from '../config/seasonConfig';
 import {
     HUD_DARKNESS_BAR_HEIGHT,
     HUD_DARKNESS_BAR_WIDTH,
@@ -37,7 +37,15 @@ import {
     HUD_TEXT_DEPTH,
     STARLIGHT_DISPLAY_SIZE
 } from '../config/starlightConfig';
-import { TREE_DEPTH } from '../config/elementsConfig';
+import {
+    DEPTH_OFFSET_FIREBALL,
+    DEPTH_OFFSET_MURKLING,
+    DEPTH_OFFSET_PLAYER,
+    DEPTH_OFFSET_PROJECTILE,
+    DEPTH_OFFSET_STARLIGHT,
+    TREE_DEPTH,
+    worldDepthFromFeetY
+} from '../config/elementsConfig';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
 import {
     murklingSpawnKey,
@@ -91,10 +99,9 @@ const VICTORY_JUMP_DURATION_MS = VICTORY_JUMP_ASCENT_MS * 2;
 const VICTORY_JUMP_FRAME_RATE = (VICTORY_JUMP_FRAMES / VICTORY_JUMP_DURATION_MS) * 1000;
 const JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * WALK_JUMP_ROWS * TILE_HEIGHT));
 const RUN_JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * RUN_JUMP_ROWS * TILE_HEIGHT));
-const BACKGROUND_SCROLL_FACTORS = [0.1, 0.25, 0.45, 0.65];
 const PAUSE_MENU_DEPTH = 200;
-const PHASE_TRANSITION_DEPTH = 150;
-const HUD_PHASE_Y = HUD_DARKNESS_BAR_Y + HUD_DARKNESS_BAR_HEIGHT + 8;
+const SEASON_TRANSITION_DEPTH = 150;
+const HUD_SEASON_Y = HUD_DARKNESS_BAR_Y + HUD_DARKNESS_BAR_HEIGHT + 8;
 const PLAYER_START_X = 80;
 /** Cap gameplay tick delta so tab/GC pauses don't spike darkness or spawn timers. */
 const MAX_FRAME_DELTA_MS = 50;
@@ -104,7 +111,7 @@ const MURKLING_OFF_SCREEN_MARGIN = STRIKER_ATTACK_RANGE_PX;
 type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die' | 'attack';
 
 type GameSceneData = {
-    phase?: GamePhase;
+    season?: GameSeason;
 };
 
 type StrikerState = 'patrol' | 'windup' | 'cooldown';
@@ -128,8 +135,8 @@ type MurklingSprite = Phaser.Types.Physics.Arcade.SpriteWithDynamicBody & {
 export class Game extends Scene
 {
     worldWidth = 0;
-    currentPhase: GamePhase = 1;
-    phaseSettings!: PhaseSettings;
+    currentSeason: GameSeason = 1;
+    seasonSettings!: SeasonSettings;
     backgroundLayers: Phaser.GameObjects.TileSprite[] = [];
     platformLayer: Phaser.Tilemaps.TilemapLayer;
     decorativeTrees: Phaser.GameObjects.Group;
@@ -158,7 +165,7 @@ export class Game extends Scene
     darknessBarFill: Phaser.GameObjects.Rectangle;
     darknessBarLabel: Phaser.GameObjects.Text;
     darknessBarText: Phaser.GameObjects.Text;
-    hudPhaseLabel: Phaser.GameObjects.Text;
+    hudSeasonLabel: Phaser.GameObjects.Text;
     gameOverMessage?: Phaser.GameObjects.Text;
     gameOverTitle?: Phaser.GameObjects.Text;
     darkness = 0.5;
@@ -177,9 +184,9 @@ export class Game extends Scene
     victoryGroundY = 0;
     victoryJumpTween?: Phaser.Tweens.Tween;
     isPaused = false;
-    isAwaitingPhaseContinue = false;
+    isAwaitingSeasonContinue = false;
     pauseMenu?: Phaser.GameObjects.Container;
-    phaseTransitionMenu?: Phaser.GameObjects.Container;
+    seasonTransitionMenu?: Phaser.GameObjects.Container;
 
     constructor ()
     {
@@ -188,13 +195,13 @@ export class Game extends Scene
 
     init (data?: GameSceneData)
     {
-        this.currentPhase = data?.phase ?? 1;
-        this.phaseSettings = getPhaseSettings(this.currentPhase);
+        this.currentSeason = data?.season ?? DEFAULT_START_SEASON;
+        this.seasonSettings = getSeasonSettings(this.currentSeason);
     }
 
     create ()
     {
-        this.resetPhaseRuntimeState();
+        this.resetSeasonRuntimeState();
 
         const { width, height } = this.scale;
         const centerY = height / 2;
@@ -206,7 +213,8 @@ export class Game extends Scene
         this.cameras.main.setBounds(0, 0, this.worldWidth, WORLD_HEIGHT);
         this.cameras.main.roundPixels = false;
 
-        const layerKeys = this.phaseSettings.backgroundLayerKeys;
+        const layerKeys = this.seasonSettings.backgroundLayerKeys;
+        const scrollFactors = this.seasonSettings.backgroundScrollFactors;
         const bgScale = Math.max(width / 576, height / 324);
         const bgDisplayHeight = 324 * bgScale;
 
@@ -215,7 +223,7 @@ export class Game extends Scene
             const layer = this.add.tileSprite(worldCenterX, centerY, this.worldWidth, bgDisplayHeight, key)
                 .setTileScale(bgScale)
                 .setDepth(index)
-                .setScrollFactor(BACKGROUND_SCROLL_FACTORS[index]);
+                .setScrollFactor(scrollFactors[index]);
 
             this.backgroundLayers.push(layer);
         });
@@ -227,7 +235,7 @@ export class Game extends Scene
         this.resetPlayerToStart();
         this.player.setOrigin(0.5, 1);
         this.player.setDisplaySize(WIZARD_DISPLAY_WIDTH, WIZARD_DISPLAY_HEIGHT);
-        this.player.setDepth(20);
+        this.player.setDepth(worldDepthFromFeetY(this.player.y, DEPTH_OFFSET_PLAYER));
         this.player.setCollideWorldBounds(true);
         this.player.setDragX(PLAYER_DRAG_X);
         this.updatePlayerBody();
@@ -317,14 +325,14 @@ export class Game extends Scene
             .setScrollFactor(0)
             .setDepth(HUD_TEXT_DEPTH);
 
-        this.hudPhaseLabel = this.add.text(
+        this.hudSeasonLabel = this.add.text(
             HUD_DARKNESS_BAR_X,
-            HUD_PHASE_Y,
-            `Phase ${this.currentPhase} / ${TOTAL_PHASES}`,
+            HUD_SEASON_Y,
+            `${this.seasonSettings.name} (${this.currentSeason}/${TOTAL_SEASONS})`,
             {
                 fontFamily: 'Arial Black',
                 fontSize: 16,
-                color: this.currentPhase === 2 ? '#ffaa66' : '#fff8c0',
+                color: this.seasonSettings.hudColor,
                 stroke: '#000000',
                 strokeThickness: 3
             }
@@ -357,9 +365,9 @@ export class Game extends Scene
         EventBus.emit('current-scene-ready', this);
     }
 
-    resetPhaseRuntimeState ()
+    resetSeasonRuntimeState ()
     {
-        this.darkness = this.phaseSettings.darknessStart;
+        this.darkness = this.seasonSettings.darknessStart;
         this.starlightsCollected = 0;
         this.totalStarlights = 0;
         this.starlightOccupiedKeys = new Set();
@@ -373,7 +381,7 @@ export class Game extends Scene
         this.hudDarknessPercent = -1;
         this.isVictoryCelebration = false;
         this.isPaused = false;
-        this.isAwaitingPhaseContinue = false;
+        this.isAwaitingSeasonContinue = false;
         this.backgroundLayers = [];
         this.victoryJumpTween?.stop();
         this.victoryJumpTween = undefined;
@@ -449,7 +457,7 @@ export class Game extends Scene
             immovable: true
         });
 
-        for (let i = 0; i < this.phaseSettings.starlightInitialCount; i++)
+        for (let i = 0; i < this.seasonSettings.starlightInitialCount; i++)
         {
             this.spawnRandomStarlight();
         }
@@ -484,7 +492,7 @@ export class Game extends Scene
         const y = tileSurfaceY(row) - floatOffsetPx;
         const starlight = this.starlights.create(x, y, 'starlight') as Phaser.Types.Physics.Arcade.SpriteWithStaticBody;
 
-        starlight.setDepth(15);
+        starlight.setDepth(worldDepthFromFeetY(y, DEPTH_OFFSET_STARLIGHT));
         starlight.setDisplaySize(STARLIGHT_DISPLAY_SIZE, STARLIGHT_DISPLAY_SIZE);
         starlight.setData('spawnKey', spawnKey);
 
@@ -517,17 +525,17 @@ export class Game extends Scene
             (_player, murklingObject) => this.hitMurkling(murklingObject as Phaser.Physics.Arcade.Sprite)
         );
 
-        for (let i = 0; i < this.phaseSettings.minGroundMurklingCount; i++)
+        for (let i = 0; i < this.seasonSettings.minGroundMurklingCount; i++)
         {
             this.spawnGroundMurkling();
         }
 
-        for (let i = this.phaseSettings.minGroundMurklingCount; i < this.phaseSettings.murklingInitialCount; i++)
+        for (let i = this.seasonSettings.minGroundMurklingCount; i < this.seasonSettings.murklingInitialCount; i++)
         {
             this.spawnRandomMurkling('patrol');
         }
 
-        for (let i = 0; i < this.phaseSettings.strikerInitialCount; i++)
+        for (let i = 0; i < this.seasonSettings.strikerInitialCount; i++)
         {
             this.spawnRandomMurkling('striker');
         }
@@ -694,7 +702,7 @@ export class Game extends Scene
         const y = this.player.y + FIREBALL_SPAWN_OFFSET_Y;
         const fireball = this.fireballs.create(x, y, 'fireball') as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
 
-        fireball.setDepth(19);
+        fireball.setDepth(worldDepthFromFeetY(y, DEPTH_OFFSET_FIREBALL));
         fireball.setDisplaySize(FIREBALL_DISPLAY_SIZE, FIREBALL_DISPLAY_SIZE);
         fireball.setVelocityX(direction * FIREBALL_SPEED);
         fireball.body.setAllowGravity(false);
@@ -728,6 +736,35 @@ export class Game extends Scene
             {
                 fireball.destroy();
             }
+        }
+    }
+
+    updateWorldEntityDepths ()
+    {
+        if (this.player?.active)
+        {
+            this.player.setDepth(worldDepthFromFeetY(this.player.y, DEPTH_OFFSET_PLAYER));
+        }
+
+        for (const murklingObject of this.murklings.getChildren())
+        {
+            const murkling = murklingObject as Phaser.Physics.Arcade.Sprite;
+
+            murkling.setDepth(worldDepthFromFeetY(murkling.y, DEPTH_OFFSET_MURKLING));
+        }
+
+        for (const fireballObject of this.fireballs.getChildren())
+        {
+            const fireball = fireballObject as Phaser.Physics.Arcade.Sprite;
+
+            fireball.setDepth(worldDepthFromFeetY(fireball.y, DEPTH_OFFSET_FIREBALL));
+        }
+
+        for (const boltObject of this.murklingProjectiles.getChildren())
+        {
+            const bolt = boltObject as Phaser.Physics.Arcade.Sprite;
+
+            bolt.setDepth(worldDepthFromFeetY(bolt.y, DEPTH_OFFSET_PROJECTILE));
         }
     }
 
@@ -829,12 +866,12 @@ export class Game extends Scene
 
     rollMurklingSpawnType (): MurklingType
     {
-        if (this.phaseSettings.strikerSpawnChance <= 0)
+        if (this.seasonSettings.strikerSpawnChance <= 0)
         {
             return 'patrol';
         }
 
-        return Math.random() < this.phaseSettings.strikerSpawnChance ? 'striker' : 'patrol';
+        return Math.random() < this.seasonSettings.strikerSpawnChance ? 'striker' : 'patrol';
     }
 
     createMurkling ({ col, row, startCol, endCol }: MurklingSpawn, type: MurklingType = 'patrol')
@@ -847,7 +884,7 @@ export class Game extends Scene
         const murkling = this.murklings.create(x, y, 'murkling') as MurklingSprite;
 
         murkling.setOrigin(0.5, 1);
-        murkling.setDepth(18);
+        murkling.setDepth(worldDepthFromFeetY(y, DEPTH_OFFSET_MURKLING));
         murkling.setDisplaySize(displaySize, displaySize);
         murkling.setCollideWorldBounds(false);
         murkling.anims.play('murkling-walk');
@@ -918,7 +955,7 @@ export class Game extends Scene
 
     setMurklingDirection (murkling: MurklingSprite, moveRight: boolean)
     {
-        const speed = this.phaseSettings.murklingPatrolSpeed;
+        const speed = this.seasonSettings.murklingPatrolSpeed;
         const shouldFlipX = !moveRight;
 
         if (murkling.flipX !== shouldFlipX)
@@ -934,7 +971,7 @@ export class Game extends Scene
         const wizardX = this.player.x;
         const wizardY = this.player.y;
         const wizardInAir = !this.player.body.onFloor();
-        const patrolSpeed = this.phaseSettings.murklingPatrolSpeed;
+        const patrolSpeed = this.seasonSettings.murklingPatrolSpeed;
 
         for (const murklingObject of this.murklings.getChildren())
         {
@@ -1113,7 +1150,7 @@ export class Game extends Scene
         {
             this.ensureMurklingVelocityX(
                 murkling,
-                murkling.flipX ? -this.phaseSettings.murklingPatrolSpeed : this.phaseSettings.murklingPatrolSpeed
+                murkling.flipX ? -this.seasonSettings.murklingPatrolSpeed : this.seasonSettings.murklingPatrolSpeed
             );
         }
     }
@@ -1153,14 +1190,13 @@ export class Game extends Scene
             'murkling-bolt'
         ) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
 
-        bolt.setDepth(17);
+        bolt.setDepth(worldDepthFromFeetY(originY, DEPTH_OFFSET_PROJECTILE));
         bolt.setDisplaySize(MURKLING_BOLT_DISPLAY_SIZE, MURKLING_BOLT_DISPLAY_SIZE);
         bolt.setVelocity(
             (dx / distance) * STRIKER_PROJECTILE_SPEED,
             (dy / distance) * STRIKER_PROJECTILE_SPEED
         );
         bolt.body.setAllowGravity(false);
-        bolt.setCollideWorldBounds(true);
         bolt.setData('spawnX', murkling.x);
         bolt.setData('spawnY', originY);
         bolt.setData('maxTravel', STRIKER_ATTACK_RANGE_PX * 1.5);
@@ -1184,10 +1220,10 @@ export class Game extends Scene
             }
 
             if (
-                bolt.x < -MURKLING_BOLT_DISPLAY_SIZE
-                || bolt.x > this.worldWidth + MURKLING_BOLT_DISPLAY_SIZE
-                || bolt.y < -MURKLING_BOLT_DISPLAY_SIZE
-                || bolt.y > WORLD_HEIGHT + MURKLING_BOLT_DISPLAY_SIZE
+                bolt.x < 0
+                || bolt.x > this.worldWidth
+                || bolt.y < 0
+                || bolt.y > WORLD_HEIGHT
             )
             {
                 bolt.destroy();
@@ -1205,7 +1241,7 @@ export class Game extends Scene
         const knockback = this.player.x < murkling.x ? -MURKLING_KNOCKBACK_X : MURKLING_KNOCKBACK_X;
 
         this.player.setVelocityX(knockback);
-        this.applyWizardDarknessHit(this.phaseSettings.murklingDarknessSpike);
+        this.applyWizardDarknessHit(this.seasonSettings.murklingDarknessSpike);
     }
 
     collectStarlight (starlight: Phaser.Physics.Arcade.Sprite)
@@ -1230,7 +1266,7 @@ export class Game extends Scene
             }
 
             this.starlightsCollected++;
-            this.darkness = Math.max(0, this.darkness - this.phaseSettings.starlightDarknessRelief);
+            this.darkness = Math.max(0, this.darkness - this.seasonSettings.starlightDarknessRelief);
 
             this.updateDarknessVisuals();
             this.updateHud();
@@ -1239,9 +1275,9 @@ export class Game extends Scene
 
             if (this.darkness <= 0)
             {
-                if (this.currentPhase < TOTAL_PHASES)
+                if (this.currentSeason < TOTAL_SEASONS)
                 {
-                    this.completePhase();
+                    this.completeSeason();
                 }
                 else
                 {
@@ -1251,35 +1287,40 @@ export class Game extends Scene
         });
     }
 
-    completePhase ()
+    completeSeason ()
     {
-        this.isAwaitingPhaseContinue = true;
+        this.isAwaitingSeasonContinue = true;
         this.physics.pause();
         this.tweens.pauseAll();
-        this.showPhaseTransitionMenu();
+        this.showSeasonTransitionMenu();
     }
 
-    showPhaseTransitionMenu ()
+    showSeasonTransitionMenu ()
     {
         const { width, height } = this.scale;
         const centerX = width / 2;
         const centerY = height / 2;
 
-        this.phaseTransitionMenu = this.add.container(0, 0)
+        this.seasonTransitionMenu = this.add.container(0, 0)
             .setScrollFactor(0)
-            .setDepth(PHASE_TRANSITION_DEPTH);
+            .setDepth(SEASON_TRANSITION_DEPTH);
 
         const backdrop = this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.6);
-        const title = this.add.text(centerX, centerY - 72, `PHASE ${this.currentPhase} COMPLETE`, {
-            fontFamily: 'Arial Black',
-            fontSize: 72,
-            color: '#fff8c0',
-            stroke: '#000000',
-            strokeThickness: 10,
-            align: 'center'
-        }).setOrigin(0.5);
+        const title = this.add.text(
+            centerX,
+            centerY - 72,
+            `${this.seasonSettings.name.toUpperCase()} COMPLETE`,
+            {
+                fontFamily: 'Arial Black',
+                fontSize: 72,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 10,
+                align: 'center'
+            }
+        ).setOrigin(0.5);
 
-        const message = this.add.text(centerX, centerY + 8, 'The Murk deepens — press Enter to continue', {
+        const message = this.add.text(centerX, centerY + 8, this.seasonSettings.transitionMessage, {
             fontFamily: 'Arial Black',
             fontSize: 28,
             color: '#ffffff',
@@ -1290,10 +1331,10 @@ export class Game extends Scene
 
         const continueButton = this.createPauseMenuButton(centerX, centerY + 88, 'Continue', () =>
         {
-            this.continueToNextPhase();
+            this.continueToNextSeason();
         });
 
-        this.phaseTransitionMenu.add([
+        this.seasonTransitionMenu.add([
             backdrop,
             title,
             message,
@@ -1302,21 +1343,21 @@ export class Game extends Scene
         ]);
     }
 
-    continueToNextPhase ()
+    continueToNextSeason ()
     {
-        if (!this.isAwaitingPhaseContinue)
+        if (!this.isAwaitingSeasonContinue)
         {
             return;
         }
 
         regenerateWorldMap();
-        this.scene.restart({ phase: (this.currentPhase + 1) as GamePhase });
+        this.scene.restart({ season: (this.currentSeason + 1) as GameSeason });
     }
 
-    hidePhaseTransitionMenu ()
+    hideSeasonTransitionMenu ()
     {
-        this.phaseTransitionMenu?.destroy(true);
-        this.phaseTransitionMenu = undefined;
+        this.seasonTransitionMenu?.destroy(true);
+        this.seasonTransitionMenu = undefined;
     }
 
     updateDarknessVisuals ()
@@ -1529,7 +1570,7 @@ export class Game extends Scene
     {
         this.isPaused = false;
         regenerateWorldMap();
-        this.scene.restart({ phase: 1 });
+        this.scene.restart({ season: DEFAULT_START_SEASON });
     }
 
     showPauseMenu ()
@@ -1763,14 +1804,14 @@ export class Game extends Scene
             return;
         }
 
-        if (this.isAwaitingPhaseContinue)
+        if (this.isAwaitingSeasonContinue)
         {
             if (
                 Input.Keyboard.JustDown(this.enterKey)
                 || Input.Keyboard.JustDown(this.spaceKey)
             )
             {
-                this.continueToNextPhase();
+                this.continueToNextSeason();
             }
 
             return;
@@ -1781,8 +1822,14 @@ export class Game extends Scene
             this.togglePause();
         }
 
-        if (this.isPaused || this.gameEnded)
+        if (this.isPaused)
         {
+            return;
+        }
+
+        if (this.gameEnded)
+        {
+            this.updateWorldEntityDepths();
             return;
         }
 
@@ -1790,7 +1837,7 @@ export class Game extends Scene
 
         this.starlightSpawnElapsed += dt;
 
-        if (this.starlightSpawnElapsed >= this.phaseSettings.starlightSpawnIntervalMs)
+        if (this.starlightSpawnElapsed >= this.seasonSettings.starlightSpawnIntervalMs)
         {
             this.starlightSpawnElapsed = 0;
             this.spawnRandomStarlight();
@@ -1798,7 +1845,7 @@ export class Game extends Scene
 
         this.murklingSpawnElapsed += dt;
 
-        if (this.murklingSpawnElapsed >= this.phaseSettings.murklingSpawnIntervalMs)
+        if (this.murklingSpawnElapsed >= this.seasonSettings.murklingSpawnIntervalMs)
         {
             this.murklingSpawnElapsed = 0;
             this.spawnRandomMurkling();
@@ -1806,7 +1853,7 @@ export class Game extends Scene
 
         this.darkness = Math.min(
             1,
-            this.darkness + dt / (this.phaseSettings.darknessFillSeconds * 1000)
+            this.darkness + dt / (this.seasonSettings.darknessFillSeconds * 1000)
         );
         this.updateDarknessVisuals();
 
@@ -1899,6 +1946,8 @@ export class Game extends Scene
                 this.setPlayerAnimation('idle');
             }
         }
+
+        this.updateWorldEntityDepths();
     }
 
     changeScene ()

@@ -1,3 +1,5 @@
+import type { GameSeason } from './config/seasonConfig';
+
 const params = new URLSearchParams(window.location.search);
 
 function flagFromUrl (name: string, devDefault: boolean): boolean
@@ -17,3 +19,6 @@ export const DEBUG_PHYSICS = flagFromUrl('physicsDebug', false);
 
 /** Overlay world-map grid and platform cells (toggle in-game with G). */
 export const DEBUG_WORLD_GRID = flagFromUrl('worldGrid', false);
+
+/** Testing: season index for a fresh run (1 Spring … 4 Winter). Revert to `1` for normal play. */
+export const DEFAULT_START_SEASON: GameSeason = 1;

@@ -50,10 +50,26 @@ export class Preloader extends Scene
         //  Load the assets for the game - Replace with your own assets
         this.load.setPath('assets');
 
-        this.load.image('bg-layer-1', 'background/1.png');
-        this.load.image('bg-layer-2', 'background/2.png');
-        this.load.image('bg-layer-3', 'background/3.png');
-        this.load.image('bg-layer-4', 'background/4.png');
+        this.load.image('bg-layer-1', 'background/spring/1.png');
+        this.load.image('bg-layer-2', 'background/spring/2.png');
+        this.load.image('bg-layer-3', 'background/spring/3.png');
+        this.load.image('bg-layer-4', 'background/spring/4.png');
+
+        this.load.image('bg-summer-layer-1', 'background/summer/1.png');
+        this.load.image('bg-summer-layer-2', 'background/summer/2.png');
+        this.load.image('bg-summer-layer-3', 'background/summer/3.png');
+        this.load.image('bg-summer-layer-4', 'background/summer/4.png');
+
+        this.load.image('bg-fall-layer-1', 'background/fall/1.png');
+        this.load.image('bg-fall-layer-2', 'background/fall/2.png');
+        this.load.image('bg-fall-layer-3', 'background/fall/3.png');
+        this.load.image('bg-fall-layer-4', 'background/fall/4.png');
+        this.load.image('bg-fall-layer-5', 'background/fall/5.png');
+
+        this.load.image('bg-winter-layer-1', 'background/winter/1.png');
+        this.load.image('bg-winter-layer-2', 'background/winter/2.png');
+        this.load.image('bg-winter-layer-3', 'background/winter/3.png');
+        this.load.image('bg-winter-layer-4', 'background/winter/4.png');
 
         this.load.image('platform-tile-11', 'platform/tiles/11.png');
         this.load.image('starlight', 'starlight/stars.png');
