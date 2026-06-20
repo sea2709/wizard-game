@@ -4,6 +4,11 @@ const params = new URLSearchParams(window.location.search);
 
 function flagFromUrl (name: string, devDefault: boolean): boolean
 {
+    if (!import.meta.env.DEV)
+    {
+        return false;
+    }
+
     if (params.has(name))
     {
         const value = params.get(name);
@@ -11,7 +16,7 @@ function flagFromUrl (name: string, devDefault: boolean): boolean
         return value !== '0' && value !== 'false';
     }
 
-    return import.meta.env.DEV && devDefault;
+    return devDefault;
 }
 
 /** Draw Arcade Physics body outlines (toggle in-game with P). */

@@ -113,7 +113,7 @@ at the end of `create()`.
 
 ### In-game (dev builds only)
 
-Flags in `src/game/debug.ts` (URL query params override defaults):
+Flags in `src/game/debug.ts` (URL query params override defaults). **Production builds ignore URL params and always keep these flags off** (`import.meta.env.DEV` gate in `flagFromUrl`).
 
 | Flag | URL param | Default (dev) | Effect |
 |------|-----------|---------------|--------|
