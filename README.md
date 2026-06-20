@@ -1,198 +1,102 @@
-# Phaser React TypeScript Template
+# The Starwarden
 
-> **AI / contributor reference:** See [AGENTS.md](AGENTS.md) for architecture, game logic, tile system, assets, and conventions. Start there instead of reading the full codebase.
+A 2D side-scrolling platformer built with **Phaser 4**, **React 19**, **TypeScript**, and **Vite**. Play as a wizard crossing a procedurally generated world through four seasons — collect starlights to push back the darkness, dodge or defeat murklings, and clear Spring through Winter to win.
 
-This is a Phaser project template that uses the React framework and Vite for bundling. It includes a bridge for React to Phaser game communication, hot-reloading for quick development workflow and scripts to generate production-ready builds.
+> **AI / contributor reference:** See [AGENTS.md](AGENTS.md) for architecture, game logic, world generation, assets, and conventions. Start there instead of reading the full codebase.
 
-**[This Template is also available as a JavaScript version.](https://github.com/phaserjs/template-react)**
+## Quick start
 
-### Versions
+```bash
+npm install
+npm run dev
+```
 
-This template has been updated for:
-
-- [Phaser 4](https://github.com/phaserjs/phaser)
-- [React 19.0.0](https://github.com/facebook/react)
-- [Vite 6.3.1](https://github.com/vitejs/vite)
-- [TypeScript 5.7.2](https://github.com/microsoft/TypeScript)
-
-## Requirements
-
-[Node.js](https://nodejs.org) is required to install dependencies and run scripts via `npm`.
-
-## Available Commands
+Open [http://localhost:8080](http://localhost:8080). The game loads **Story** → **Instructions** → **Game** (MainMenu is registered but skipped on cold start).
 
 | Command | Description |
 |---------|-------------|
-| `npm install` | Install project dependencies |
-| `npm run dev` | Launch a development web server |
-| `npm run build` | Create a production build in the `dist` folder |
+| `npm install` | Install dependencies |
+| `npm run dev` | Development server with hot reload |
+| `npm run build` | Production build in `dist/` |
 
-## Writing Code
+## How to play
 
-After cloning the repo, run `npm install` from your project directory. Then, you can start the local development server by running `npm run dev`.
+Each season starts with the sky at **50% darkness**. Darkness rises passively over time (~90 seconds to reach 100% if you collect nothing). Collect **starlights** to reduce darkness; reach **0%** to clear the season. Beat all four seasons — Spring, Summer, Fall, Winter — to win. If darkness hits **100%**, you lose.
 
-The local development server runs on `http://localhost:8080` by default. Please see the Vite documentation if you wish to change this, or add SSL support.
+- **Murklings** patrol platforms; touching one adds darkness and knocks you back.
+- **Striker murklings** (Summer onward) stop and shoot purple bolts at range.
+- **Fireballs** (Space) destroy murklings but lock movement briefly during the attack animation.
+- Clearing Spring–Fall shows a season-complete interstitial, regenerates the world, and advances to the next season.
+- **Esc** opens pause with **Resume** and **New Game** (regenerates the map and restarts gameplay).
 
-Once the server is running you can edit any of the files in the `src` folder. Vite will automatically recompile your code and then reload the browser.
+### Controls
 
-## Template Project Structure
+| Input | Action |
+|-------|--------|
+| Left / Right | Move |
+| Shift + Left / Right | Run (faster move + higher jump) |
+| Up | Jump |
+| Space | Throw fireball |
+| Esc | Pause / resume |
 
-We have provided a default project structure to get you started. This is as follows:
+## Stack
 
-| Path                          | Description                                                                 |
-|-------------------------------|-----------------------------------------------------------------------------|
-| `index.html`                  | A basic HTML page to contain the game.                                     |
-| `src`                         | Contains the React client source code.                                     |
-| `src/main.tsx`                | The main **React** entry point. This bootstraps the React application.      |
-| `src/PhaserGame.tsx`          | The React component that initializes the Phaser Game and acts as a bridge between React and Phaser. |
-| `src/vite-env.d.ts`           | Global TypeScript declarations, providing type information.                |
-| `src/App.tsx`                 | The main React component.                                                  |
-| `src/game/EventBus.ts`        | A simple event bus to communicate between React and Phaser.                |
-| `src/game`                    | Contains the game source code.                                             |
-| `src/game/main.tsx`           | The main **game** entry point. This contains the game configuration and starts the game. |
-| `src/game/scenes/`            | The folder where Phaser Scenes are located.                                |
-| `public/style.css`            | Some simple CSS rules to help with page layout.                            |
-| `public/assets`               | Contains the static assets used by the game.                               |
+| Technology | Version |
+|------------|---------|
+| [Phaser](https://github.com/phaserjs/phaser) | 4 |
+| [React](https://github.com/facebook/react) | 19 |
+| [Vite](https://github.com/vitejs/vite) | 6 |
+| [TypeScript](https://github.com/microsoft/TypeScript) | 5.7 |
 
-## React Bridge
+Viewport: **1280 × 960**. World width: **6480px** (135 tile columns × 48px).
 
-The `PhaserGame.tsx` component is the bridge between React and Phaser. It initializes the Phaser game and passes events between the two.
+## Project structure
 
-To communicate between React and Phaser, you can use the **EventBus.js** file. This is a simple event bus that allows you to emit and listen for events from both React and Phaser.
-
-```js
-// In React
-import { EventBus } from './EventBus';
-
-// Emit an event
-EventBus.emit('event-name', data);
-
-// In Phaser
-// Listen for an event
-EventBus.on('event-name', (data) => {
-    // Do something with the data
-});
+```
+src/
+  main.tsx, App.tsx, PhaserGame.tsx   # React shell + Phaser bridge
+  game/
+    main.ts                           # Phaser config, scene list
+    debug.ts                          # Dev flags (physics grid, start season)
+    scenes/                           # Preloader, Story, Instructions, Game, …
+    world/                            # Procedural map, platforms, spawn pickers
+    config/                           # Season, starlight, murkling, combat tuning
+    stats/                            # Lifetime stats (localStorage)
+public/assets/
+  background/                         # Seasonal parallax layers
+  platform/                           # Tiles + seasonal trees
+  wizard/, murkling/, starlight/     # Character and collectible art
 ```
 
-In addition to this, the `PhaserGame` component exposes the Phaser game instance along with the most recently active Phaser Scene using React forwardRef.
+Key gameplay lives in `src/game/scenes/Game.ts`. Per-season difficulty and backgrounds are in `src/game/config/seasonConfig.ts`.
 
-Once exposed, you can access them like any regular react reference.
+## Development
 
-## Phaser Scene Handling
+### Debugging
 
-In Phaser, the Scene is the lifeblood of your game. It is where you sprites, game logic and all of the Phaser systems live. You can also have multiple scenes running at the same time. This template provides a way to obtain the current active scene from React.
+**IDE:** Run and Debug → **Debug in Chrome** (starts Vite and attaches the debugger; breakpoints work in `src/`).
 
-You can get the current Phaser Scene from the component event `"current-active-scene"`. In order to do this, you need to emit the event `"current-scene-ready"` from the Phaser Scene class. This event should be emitted when the scene is ready to be used. You can see this done in all of the Scenes in our template.
+**URL flags** (see `src/game/debug.ts`):
 
-**Important**: When you add a new Scene to your game, make sure you expose to React by emitting the `"current-scene-ready"` event via the `EventBus`, like this:
+| Param | Effect |
+|-------|--------|
+| `?physicsDebug=1` | Arcade body outlines |
+| `?worldGrid=1` | World-map grid overlay |
 
+**In-game hotkeys** (dev builds, Game scene): **P** toggles physics debug, **G** toggles world grid.
 
-```ts
-class MyScene extends Phaser.Scene
-{
-    constructor ()
-    {
-        super('MyScene');
-    }
+`DEFAULT_START_SEASON` in `debug.ts` is currently **2 (Summer)** for testing; set to **1** for a normal Spring start.
 
-    create ()
-    {
-        // Your Game Objects and logic here
+Static assets load from `public/assets/` in Phaser's Preloader. After `npm run build`, they are copied to `dist/`.
 
-        // At the end of create method:
-        EventBus.emit('current-scene-ready', this);
-    }
-}
-```
+### React ↔ Phaser bridge
 
-You don't have to emit this event if you don't need to access the specific scene from React. Also, you don't have to emit it at the end of `create`, you can emit it at any point. For example, should your Scene be waiting for a network request or API call to complete, it could emit the event once that data is ready.
+`PhaserGame.tsx` creates the Phaser game and exposes it via React `ref`. Scenes emit `EventBus.emit('current-scene-ready', this)` when ready so React can track the active scene. See `src/game/EventBus.ts` and [AGENTS.md](AGENTS.md#react-bridge) for details.
 
-### React Component Example
+## Deploying
 
-Here's an example of how to access Phaser data for use in a React Component:
+Run `npm run build`, then upload the entire `dist/` folder to a static web host.
 
-```ts
-import { useRef } from 'react';
-import { IRefPhaserGame } from "./game/PhaserGame";
+## Credits
 
-// In a parent component
-const ReactComponent = () => {
-
-    const phaserRef = useRef<IRefPhaserGame>(); // you can access to this ref from phaserRef.current
-
-    const onCurrentActiveScene = (scene: Phaser.Scene) => {
-    
-        // This is invoked
-
-    }
-
-    return (
-        ...
-        <PhaserGame ref={phaserRef} currentActiveScene={onCurrentActiveScene} />
-        ...
-    );
-
-}
-```
-
-In the code above, you can get a reference to the current Phaser Game instance and the current Scene by creating a reference with `useRef()` and assign to PhaserGame component.
-
-From this state reference, the game instance is available via `phaserRef.current.game` and the most recently active Scene via `phaserRef.current.scene`.
-
-The `onCurrentActiveScene` callback will also be invoked whenever the the Phaser Scene changes, as long as you emit the event via the EventBus, as outlined above.
-
-## Handling Assets
-
-Vite supports loading assets via JavaScript module `import` statements.
-
-This template provides support for both embedding assets and also loading them from a static folder. To embed an asset, you can import it at the top of the JavaScript file you are using it in:
-
-```js
-import logoImg from './assets/logo.png'
-```
-
-To load static files such as audio files, videos, etc place them into the `public/assets` folder. Then you can use this path in the Loader calls within Phaser:
-
-```js
-preload ()
-{
-    //  This is an example of an imported bundled image.
-    //  Remember to import it at the top of this file
-    this.load.image('logo', logoImg);
-
-    //  This is an example of loading a static image
-    //  from the public/assets folder:
-    this.load.image('background', 'assets/bg.png');
-}
-```
-
-When you issue the `npm run build` command, all static assets are automatically copied to the `dist/assets` folder.
-
-## Deploying to Production
-
-After you run the `npm run build` command, your code will be built into a single bundle and saved to the `dist` folder, along with any other assets your project imported, or stored in the public assets folder.
-
-In order to deploy your game, you will need to upload *all* of the contents of the `dist` folder to a public facing web server.
-
-## Customizing the Template
-
-### Vite
-
-If you want to customize your build, such as adding plugin (i.e. for loading CSS or fonts), you can modify the `vite/config.*.mjs` file for cross-project changes, or you can modify and/or create new configuration files and target them in specific npm tasks inside of `package.json`. Please see the [Vite documentation](https://vitejs.dev/) for more information.
-
-## Join the Phaser Community!
-
-We love to see what developers like you create with Phaser! It really motivates us to keep improving. So please join our community and show-off your work 😄
-
-**Visit:** The [Phaser website](https://phaser.io) and follow on [Phaser Twitter](https://twitter.com/phaser_)<br />
-**Play:** Some of the amazing games [#madewithphaser](https://twitter.com/search?q=%23madewithphaser&src=typed_query&f=live)<br />
-**Learn:** [API Docs](https://newdocs.phaser.io), [Support Forum](https://phaser.discourse.group/) and [StackOverflow](https://stackoverflow.com/questions/tagged/phaser-framework)<br />
-**Discord:** Join us on [Discord](https://discord.gg/phaser)<br />
-**Code:** 2000+ [Examples](https://labs.phaser.io)<br />
-**Read:** The [Phaser World](https://phaser.io/community/newsletter) Newsletter<br />
-
-Created by [Phaser Studio](mailto:support@phaser.io). Powered by coffee, anime, pixels and love.
-
-The Phaser logo and characters are &copy; 2011 - 2025 Phaser Studio Inc.
-
-All rights reserved.
+Built on the [Phaser React TypeScript template](https://github.com/phaserjs/template-react-ts). Game design and implementation: The Starwarden project.

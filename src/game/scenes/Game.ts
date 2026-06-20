@@ -515,14 +515,18 @@ export class Game extends Scene
         const y = tileSurfaceY(row) - floatOffsetPx;
         const starlight = this.starlights.create(x, y, 'starlight') as Phaser.Types.Physics.Arcade.SpriteWithStaticBody;
 
+        starlight.setOrigin(0.5, 0.5);
         starlight.setDepth(worldDepthFromFeetY(y, DEPTH_OFFSET_STARLIGHT));
         starlight.setDisplaySize(STARLIGHT_DISPLAY_SIZE, STARLIGHT_DISPLAY_SIZE);
         starlight.setData('spawnKey', spawnKey);
 
         const hitRadius = STARLIGHT_DISPLAY_SIZE * 0.35;
-        const hitOffset = STARLIGHT_DISPLAY_SIZE * 0.15;
+        const hitDiameter = hitRadius * 2;
+        const hitInset = (starlight.width - hitDiameter) / 2;
 
-        starlight.body.setCircle(hitRadius, hitOffset, hitOffset);
+        starlight.body.setSize(starlight.width, starlight.height);
+        starlight.body.setCircle(hitRadius, hitInset, hitInset);
+        starlight.refreshBody();
 
         setupStarlightIdleAnimations(this, starlight, col, row);
 

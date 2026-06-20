@@ -48,8 +48,8 @@ public/assets/
   background/              # Parallax layers per season (`spring/1–4.png`, etc.)
   platform/tiles/          # Platform tile images (only 11.png loaded in game)
   platform/spring_.png     # Legacy spritesheet (not used)
-  wizard/                  # Character spritesheet + source frames (rebuild sheet via scripts/build-wizard-sheet.sh)
-  murkling/                  # Murkling spritesheet + source strips (rebuild sheet via scripts/build-murkling-sheet.sh)
+  wizard/                  # Character spritesheet + source frames
+  murkling/                # Murkling spritesheet + source strips
   logo.png, star.png
   starlight/               # Starlight collectible (stars.png, 48×48)
 ```
@@ -201,7 +201,7 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 | `CELL_TREE_2` | 4 | Tree type 2 (seasonal `tree2-spring` … `tree2-winter`) in air row above platform |
 | Tree width | 2×–4× `TILE_WIDTH` | Stored in `worldTreeScale[treeRow][col]` |
 
-- **Sprites:** `tree-spring.png` … `tree-winter.png` → `tree-spring` … `tree-winter`; `tree2-spring.png` … `tree2-winter.png` → `tree2-spring` … `tree2-winter` (256×256 canvas, bottom-centered; rebuild via `scripts/build-season-trees.py`)
+- **Sprites:** `tree-spring.png` … `tree-winter.png` → `tree-spring` … `tree-winter`; `tree2-spring.png` … `tree2-winter.png` → `tree2-spring` … `tree2-winter` (256×256 canvas, bottom-centered)
 - **Grid layout:** tree cell at row `R`, platform at row `R + 1` (same `col`)
 - **Placement:** 4 trees total — at least 1 on ground, spread evenly left→right across the world (not clustered at the start); no overlapping footprints
 - **Rendering:** `getTreeTextureKey(cell, season)` — `CELL_TREE` uses the current season’s tree; feet at `tileSurfaceY(platformRow)`; fixed depth `TREE_DEPTH` (12)
@@ -554,15 +554,15 @@ flowchart TD
 
 ### Wizard sprite notes
 
-- Single spritesheet `wizard-sheet.png` (480×532, 5×7 grid of 96×76 cells); source PNGs in `wizard/` kept for editing — rebuild with `scripts/build-wizard-sheet.sh`
-- Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); walk/run/jump/hurt/attack rows are trimmed and upscaled to idle body height in `scripts/build-wizard-sheet.sh` (idle is the reference; die keeps authored collapse)
+- Single spritesheet `wizard-sheet.png` (480×532, 5×7 grid of 96×76 cells); source PNGs in `wizard/` kept for editing
+- Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); walk/run/jump/hurt/attack rows are trimmed and upscaled to idle body height (idle is the reference; die keeps authored collapse)
 - Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`); display locked to 96×76 via `WIZARD_DISPLAY_WIDTH` / `WIZARD_DISPLAY_HEIGHT`
 - Procedural `fireball` and `murkling-bolt` textures for projectiles
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
 
 ### Murkling sprite notes
 
-- Single spritesheet `murkling-sheet.png` (256×64, 8×2 grid of 32×32 cells); source strips `walk.png` and `die.png` kept for editing — rebuild with `scripts/build-murkling-sheet.sh`
+- Single spritesheet `murkling-sheet.png` (256×64, 8×2 grid of 32×32 cells); source strips `walk.png` and `die.png` kept for editing
 - Row 0: walk (6 frames); row 1: die (8 frames); frame indices in `baddiesConfig.ts` (`MURKLING_WALK_SHEET_FRAMES`, `MURKLING_DIE_SHEET_FRAMES`)
 
 ---
