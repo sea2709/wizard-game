@@ -128,7 +128,7 @@ const SPRING_SETTINGS: SeasonSettings = {
     murklingPatrolSpeed: 80,
     murklingSpawnIntervalMs: 3000,
     murklingInitialCount: 10,
-    minGroundMurklingCount: 3,
+    minGroundMurklingCount: 2,
     strikerInitialCount: 0,
     strikerSpawnChance: 0
 };
@@ -149,7 +149,7 @@ const SUMMER_SETTINGS: SeasonSettings = {
     murklingPatrolSpeed: 87,
     murklingSpawnIntervalMs: 2733,
     murklingInitialCount: 10,
-    minGroundMurklingCount: 3,
+    minGroundMurklingCount: 2,
     strikerInitialCount: 1,
     strikerSpawnChance: 0.12
 };
@@ -170,7 +170,7 @@ const FALL_SETTINGS: SeasonSettings = {
     murklingPatrolSpeed: 93,
     murklingSpawnIntervalMs: 2467,
     murklingInitialCount: 11,
-    minGroundMurklingCount: 3,
+    minGroundMurklingCount: 2,
     strikerInitialCount: 2,
     strikerSpawnChance: 0.24
 };
@@ -191,7 +191,7 @@ const WINTER_SETTINGS: SeasonSettings = {
     murklingPatrolSpeed: 100,
     murklingSpawnIntervalMs: 2200,
     murklingInitialCount: 12,
-    minGroundMurklingCount: 4,
+    minGroundMurklingCount: 3,
     strikerInitialCount: 3,
     strikerSpawnChance: 0.35
 };

@@ -1,4 +1,3 @@
-import { Boot } from './scenes/Boot';
 import { Game as MainGame } from './scenes/Game';
 import { Instructions } from './scenes/Instructions';
 import { Story } from './scenes/Story';
@@ -30,7 +29,6 @@ const config: Phaser.Types.Core.GameConfig = {
         }
     },
     scene: [
-        Boot,
         Preloader,
         Story,
         Instructions,

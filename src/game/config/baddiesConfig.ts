@@ -40,8 +40,14 @@ export const MURKLING_SPAWN_INTERVAL_MS = 3000;
 /** Murklings present when the level begins. */
 export const MURKLING_INITIAL_COUNT = 10;
 
-/** Guaranteed ground-row murklings at level start (rest spawn randomly). */
-export const MIN_GROUND_MURKLING_COUNT = 3;
+/** Guaranteed ground-row murklings at level start (rest spawn randomly). Spring default; see `seasonConfig`. */
+export const MIN_GROUND_MURKLING_COUNT = 2;
+
+/**
+ * 0–1: when both ground and floating platform runs are available, random spawns
+ * (timer + non-guaranteed initial) pick a platform run with this probability.
+ */
+export const MURKLING_PLATFORM_SPAWN_BIAS = 0.85;
 
 /** Minimum horizontal distance (px) between a new murkling and the wizard. */
 export const MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD = 144;

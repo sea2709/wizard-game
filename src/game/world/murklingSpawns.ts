@@ -1,4 +1,8 @@
-import { MIN_MURKLING_RUN_LENGTH, MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD } from '../config/baddiesConfig';
+import {
+    MIN_MURKLING_RUN_LENGTH,
+    MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD,
+    MURKLING_PLATFORM_SPAWN_BIAS
+} from '../config/baddiesConfig';
 import {
     getCachedReachablePlatformRuns,
     tileToWorld,
@@ -132,6 +136,29 @@ function buildSpawn (run: PlatformRun, col: number): MurklingSpawn
     };
 }
 
+function splitGroundAndPlatformRuns (runs: PlatformRun[]): {
+    groundRuns: PlatformRun[];
+    platformRuns: PlatformRun[];
+}
+{
+    const groundRuns: PlatformRun[] = [];
+    const platformRuns: PlatformRun[] = [];
+
+    for (const run of runs)
+    {
+        if (run.row === GROUND_ROW)
+        {
+            groundRuns.push(run);
+        }
+        else
+        {
+            platformRuns.push(run);
+        }
+    }
+
+    return { groundRuns, platformRuns };
+}
+
 /** Pick a random reachable murkling spawn not already in `occupied`. */
 export function pickRandomMurklingSpawn (
     map: WorldMap,
@@ -140,8 +167,21 @@ export function pickRandomMurklingSpawn (
     wizardX?: number
 ): MurklingSpawn | null
 {
+    const { groundRuns, platformRuns } = splitGroundAndPlatformRuns(getReachableRunsForMurklings());
+
+    let candidateRuns = platformRuns;
+
+    if (platformRuns.length === 0)
+    {
+        candidateRuns = groundRuns;
+    }
+    else if (groundRuns.length > 0 && random() >= MURKLING_PLATFORM_SPAWN_BIAS)
+    {
+        candidateRuns = groundRuns;
+    }
+
     return tryPickSpawnInRuns(
-        getReachableRunsForMurklings(),
+        candidateRuns,
         occupied,
         random,
         MAX_RANDOM_SPAWN_ATTEMPTS,

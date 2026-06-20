@@ -37,8 +37,7 @@ src/
       seasonConfig.ts        # Per-season difficulty + striker murkling tuning
     starlightAnimations.ts # Starlight idle + collect tweens
     scenes/
-      Boot.ts              # Loads minimal assets, → Preloader
-      Preloader.ts         # Loads game assets + registers animations
+      Preloader.ts         # Entry scene — loads game assets, registers animations
       Story.ts           # Opening narrative before Instructions
       Instructions.ts      # How-to-play screen before Game
       MainMenu.ts          # Template menu (logo tween demo)
@@ -51,7 +50,7 @@ public/assets/
   platform/spring_.png     # Legacy spritesheet (not used)
   wizard/                  # Character spritesheet + source frames (rebuild sheet via scripts/build-wizard-sheet.sh)
   murkling/                  # Murkling spritesheet + source strips (rebuild sheet via scripts/build-murkling-sheet.sh)
-  loading.jpg, logo.png, star.png
+  logo.png, star.png
   starlight/               # Starlight collectible (stars.png, 48×48)
 ```
 
@@ -61,7 +60,6 @@ public/assets/
 
 ```mermaid
 flowchart LR
-    Boot --> Preloader
     Preloader --> Story
     Story --> Instructions
     Instructions --> Game
@@ -72,8 +70,7 @@ flowchart LR
 
 | Scene        | Key            | Role |
 |-------------|----------------|------|
-| Boot        | `Boot`         | Loads `loading.jpg` (1280×960) for preloader splash |
-| Preloader   | `Preloader`    | Loads all game assets, creates animations |
+| Preloader   | `Preloader`    | Entry scene — loads all game assets, creates animations |
 | Story | `Story` | Opening narrative (2 pages); **Next** / **Continue** / Enter / Space → Instructions |
 | Instructions| `Instructions` | How-to-play field guide (2 pages); **Next** / **Off we go!** / Enter / Space → Game |
 | MainMenu    | `MainMenu`     | Template UI; `changeScene()` → Game |
@@ -245,7 +242,7 @@ Per-season tuning lives in `src/game/config/seasonConfig.ts` (`getSeasonSettings
 | `murklingPatrolSpeed` | 80 | 87 | 93 | 100 |
 | `murklingSpawnIntervalMs` | 3000 | 2733 | 2467 | 2200 |
 | `murklingInitialCount` | 10 | 10 | 11 | 12 |
-| `minGroundMurklingCount` | 3 | 3 | 3 | 4 |
+| `minGroundMurklingCount` | 2 | 2 | 2 | 3 |
 | `strikerInitialCount` | 0 | 1 | 2 | 3 |
 | `strikerSpawnChance` | 0 | 0.12 | 0.24 | 0.35 |
 
@@ -317,7 +314,7 @@ Patrol enemies on platform runs; contact adds darkness (no HP system). Season-sp
 | `murklingPatrolSpeed` | 80 | 87 | 93 | 100 | Horizontal patrol speed (px/s) |
 | `murklingSpawnIntervalMs` | 3000 | 2733 | 2467 | 2200 | Automatic spawn interval |
 | `murklingInitialCount` | 10 | 10 | 11 | 12 | Patrol murklings at season start |
-| `minGroundMurklingCount` | 3 | 3 | 3 | 4 | Ground-row patrol murklings at start |
+| `minGroundMurklingCount` | 2 | 2 | 2 | 3 | Ground-row patrol murklings at start |
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -326,6 +323,7 @@ Patrol enemies on platform runs; contact adds darkness (no HP system). Season-sp
 | `MURKLING_KNOCKBACK_X` | 180 | Horizontal knockback on contact |
 | `MIN_MURKLING_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
 | `MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD` | 144 | Min horizontal distance (px) from wizard when spawning |
+| `MURKLING_PLATFORM_SPAWN_BIAS` | 0.85 | Random spawns prefer floating platforms over ground when both exist |
 | `MURKLING_WIZARD_DIRECTION_BIAS` | 0.7 | Probability murklings face the wizard on spawn / edge turn / jump-over |
 | `MURKLING_JUMP_OVER_CLEARANCE_PX` | 12 | Min vertical gap (wizard feet above murkling feet) for jump-over turn |
 | `MURKLING_JUMP_OVER_WINDOW_MS` | 600 | Ms after airborne cross to allow a jump-over direction roll after landing |
@@ -334,7 +332,7 @@ Patrol enemies on platform runs; contact adds darkness (no HP system). Season-sp
 - **Sprite:** `murkling/murkling-sheet.png` (texture key `murkling`, 8×2 grid of 32×32 cells); loops `murkling-walk` while patrolling
 - **Die:** `murkling-die` animation uses row 1 of the same sheet (frames 8–15); plays on fireball hit, then sprite is removed
 - **When:** Season-tuned patrol counts at start, then timer spawns via `pickRandomMurklingSpawn()` (striker chance ramps from Summer onward)
-- **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
+- **Where:** Season start guarantees `minGroundMurklingCount` on the ground row; other initial + timer spawns use `pickRandomMurklingSpawn()` — **85%** chance on a floating platform run when available, else ground. Within the chosen tier, spawn position is weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
 - **Behavior:** Patrol between run edges on platform collider; on spawn, when turning at bounds, and when the wizard **jumps over** (airborne, feet above murkling, landed on the other side or murkling was walking away), **70%** chance (`MURKLING_WIZARD_DIRECTION_BIAS`) to walk toward the wizard’s X if valid on the run, otherwise classic bounce / midpoint-based / keep-current fallback; direction unchanged while the wizard walks past on the ground
 - **On contact:** Season-tuned darkness spike, knockback, `wizard-hurt` animation, brief purple tint
 - **Fireball:** Space throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
