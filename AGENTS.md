@@ -111,7 +111,7 @@ at the end of `create()`.
 
 ### IDE (Cursor / VS Code)
 
-- **Run and Debug** → **Debug in Chrome** — starts Vite (`npm run dev-nolog`) and attaches the debugger
+- **Run and Debug** → **Debug in Chrome** — starts Vite (`npm run dev`) and attaches the debugger
 - Set breakpoints in `.ts` files under `src/`; source maps enabled in `vite/config.dev.mjs`
 
 ### In-game (dev builds only)

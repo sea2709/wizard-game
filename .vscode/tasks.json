@@ -4,7 +4,7 @@
         {
             "label": "dev",
             "type": "npm",
-            "script": "dev-nolog",
+            "script": "dev",
             "isBackground": true,
             "problemMatcher": {
                 "owner": "custom",
