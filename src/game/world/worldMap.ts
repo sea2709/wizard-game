@@ -1,3 +1,5 @@
+import type { GameSeason } from '../config/seasonConfig';
+
 export const TILE_WIDTH = 48;
 export const TILE_HEIGHT = 24;
 export const WORLD_MAP_COLS = 135;
@@ -141,10 +143,26 @@ export function isTreeCell (cell: WorldMapCell): boolean
     return cell === CELL_TREE || cell === CELL_TREE_2;
 }
 
-/** Phaser texture key for a tree map cell. */
-export function getTreeTextureKey (cell: WorldMapCell): string
+const SEASON_TREE_TEXTURE_KEYS: Record<GameSeason, string> = {
+    1: 'tree-spring',
+    2: 'tree-summer',
+    3: 'tree-fall',
+    4: 'tree-winter'
+};
+
+const SEASON_TREE_2_TEXTURE_KEYS: Record<GameSeason, string> = {
+    1: 'tree2-spring',
+    2: 'tree2-summer',
+    3: 'tree2-fall',
+    4: 'tree2-winter'
+};
+
+/** Phaser texture key for a tree map cell (seasonal per tree type). */
+export function getTreeTextureKey (cell: WorldMapCell, season: GameSeason): string
 {
-    return cell === CELL_TREE_2 ? 'tree-2' : 'tree-1';
+    return cell === CELL_TREE_2
+        ? SEASON_TREE_2_TEXTURE_KEYS[season]
+        : SEASON_TREE_TEXTURE_KEYS[season];
 }
 
 function isTreeAirCell (map: WorldMap, row: number, col: number): boolean

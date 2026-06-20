@@ -73,8 +73,14 @@ export class Preloader extends Scene
 
         this.load.image('platform-tile-11', 'platform/tiles/11.png');
         this.load.image('starlight', 'starlight/stars.png');
-        this.load.image('tree-1', 'platform/elements/tree1.png');
-        this.load.image('tree-2', 'platform/elements/tree2.png');
+        this.load.image('tree-spring', 'platform/elements/tree-spring.png');
+        this.load.image('tree-summer', 'platform/elements/tree-summer.png');
+        this.load.image('tree-fall', 'platform/elements/tree-fall.png');
+        this.load.image('tree-winter', 'platform/elements/tree-winter.png');
+        this.load.image('tree2-spring', 'platform/elements/tree2-spring.png');
+        this.load.image('tree2-summer', 'platform/elements/tree2-summer.png');
+        this.load.image('tree2-fall', 'platform/elements/tree2-fall.png');
+        this.load.image('tree2-winter', 'platform/elements/tree2-winter.png');
 
         this.load.spritesheet('wizard', 'wizard/wizard-sheet.png', {
             frameWidth: WIZARD_FRAME_WIDTH,

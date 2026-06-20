@@ -424,7 +424,7 @@ export class Game extends Scene
 
                 const { x } = tileToWorld(col, platformRow);
                 const y = tileSurfaceY(platformRow);
-                const tree = this.add.image(x, y, getTreeTextureKey(cell));
+                const tree = this.add.image(x, y, getTreeTextureKey(cell, this.currentSeason));
 
                 tree.setOrigin(0.5, 1);
                 tree.setDepth(TREE_DEPTH);

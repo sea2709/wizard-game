@@ -75,7 +75,7 @@ flowchart LR
 | Boot        | `Boot`         | Loads `loading.jpg` (1280×960) for preloader splash |
 | Preloader   | `Preloader`    | Loads all game assets, creates animations |
 | Story | `Story` | Opening narrative (2 pages); **Next** / **Continue** / Enter / Space → Instructions |
-| Instructions| `Instructions` | How-to-play screen; **Start Game** / Enter / Space → Game |
+| Instructions| `Instructions` | How-to-play field guide (2 pages); **Next** / **Off we go!** / Enter / Space → Game |
 | MainMenu    | `MainMenu`     | Template UI; `changeScene()` → Game |
 | Game        | `Game`         | Scrolling world, platform, wizard player |
 | GameOver    | `GameOver`     | Template scene (unused in normal win/lose flow) |
@@ -200,14 +200,14 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `TREE_COUNT` | 4 | Trees placed per world |
-| `CELL_TREE` | 2 | Tree type 1 (`tree1.png`) in air row above platform |
-| `CELL_TREE_2` | 4 | Tree type 2 (`tree2.png`) in air row above platform |
+| `CELL_TREE` | 2 | Tree type 1 (seasonal `tree-spring` … `tree-winter`) in air row above platform |
+| `CELL_TREE_2` | 4 | Tree type 2 (seasonal `tree2-spring` … `tree2-winter`) in air row above platform |
 | Tree width | 2×–4× `TILE_WIDTH` | Stored in `worldTreeScale[treeRow][col]` |
 
-- **Sprites:** `tree1.png` → `tree-1`, `tree2.png` → `tree-2` (sources downscaled to **256px** long edge)
+- **Sprites:** `tree-spring.png` … `tree-winter.png` → `tree-spring` … `tree-winter`; `tree2-spring.png` … `tree2-winter.png` → `tree2-spring` … `tree2-winter` (256×256 canvas, bottom-centered; rebuild via `scripts/build-season-trees.py`)
 - **Grid layout:** tree cell at row `R`, platform at row `R + 1` (same `col`)
 - **Placement:** 4 trees total — at least 1 on ground, spread evenly left→right across the world (not clustered at the start); no overlapping footprints
-- **Rendering:** `getTreeTextureKey(cell)`; feet at `tileSurfaceY(platformRow)`; fixed depth `TREE_DEPTH` (12)
+- **Rendering:** `getTreeTextureKey(cell, season)` — `CELL_TREE` uses the current season’s tree; feet at `tileSurfaceY(platformRow)`; fixed depth `TREE_DEPTH` (12)
 
 ---
 
@@ -510,8 +510,8 @@ flowchart TD
 | `background/winter/1–4.png` | `bg-winter-layer-1` … `bg-winter-layer-4` |
 | `platform/tiles/11.png` | `platform-tile-11` |
 | `starlight/stars.png` | `starlight` |
-| `platform/elements/tree1.png` | `tree-1` |
-| `platform/elements/tree2.png` | `tree-2` |
+| `platform/elements/tree-spring.png` … `tree-winter.png` | `tree-spring` … `tree-winter` |
+| `platform/elements/tree2-spring.png` … `tree2-winter.png` | `tree2-spring` … `tree2-winter` |
 | `wizard/wizard-sheet.png` | `wizard` (spritesheet, 96×76 cells) |
 | `murkling/murkling-sheet.png` | `murkling` (spritesheet, 32×32 cells) |
 
