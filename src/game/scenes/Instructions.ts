@@ -4,9 +4,10 @@ import { addMenuSceneBackground } from './menuSceneBackground';
 
 const INSTRUCTION_LINES = [
     'The sky is gloomy — half swallowed by shadow!',
-    'Top left: starlight count (collected / total) and a Darkness bar.',
+    'Top left: starlight count, Darkness bar, and your current phase.',
     'Snatch starlights to push the bar down and chase the dark away.',
-    'Clear the sky to win. Let the bar hit 100%… and it\'s curtains.',
+    'Clear Phase 1, then Phase 2 — darkness resets to 50% but rises faster.',
+    'Beat both phases to win. Let the bar hit 100%… and it\'s curtains.',
     '',
     'Wander        ← →',
     'Sprint        Shift + ← →',
@@ -14,7 +15,8 @@ const INSTRUCTION_LINES = [
     'Attack        Space',
     '',
     'Murklings lurk on the platforms — bump one and the sky',
-    'gets moodier. Toast them with a fireball instead!'
+    'gets moodier. Toast them with a fireball instead!',
+    'In Phase 2, purple Strikers hang back and shoot shadow bolts.'
 ];
 
 export class Instructions extends Scene

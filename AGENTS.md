@@ -6,7 +6,7 @@ This document describes the **current** architecture, game logic, and convention
 
 - **Game name:** The Starwarden (browser title in `index.html`; story/instructions screens use the name in UI copy)
 - **Stack:** Phaser 4, React 19, TypeScript, Vite
-- **Genre:** 2D side-scrolling platformer — collect starlights to push the sky back from 50% darkness to clear
+- **Genre:** 2D side-scrolling platformer — collect starlights to clear darkness in **two phases**; beat Phase 1 then Phase 2 to win
 - **Main gameplay file:** `src/game/scenes/Game.ts`
 - **World width:** 6480px (fixed; viewport is 1280×960)
 - **Dev entry:** Preloader starts `Story`, then `Instructions`, then `Game` (skips MainMenu)
@@ -25,12 +25,13 @@ src/
     debug.ts               # Debug flags (physics, world grid)
     EventBus.ts            # Phaser Events.EventEmitter for React ↔ Phaser
     world/
-      worldMap.ts          # 135×40 tile grid (0/1), platform layout
+      worldMap.ts          # 135×40 tile grid (0/1), platform layout; `regenerateWorldMap()`
       platformLayer.ts     # Batched TilemapLayer from world grid + collision
       starlightSpawns.ts   # Starlight spawn positions from platform runs
       murklingSpawns.ts    # Murkling spawn positions from platform runs
     starlightConfig.ts     # Darkness timer + starlight placement tuning
     starlightAnimations.ts # Starlight idle + collect tweens
+    phaseConfig.ts         # Per-phase difficulty + striker murkling tuning
     baddiesConfig.ts       # Murkling patrol, hit, and spawn tuning
     wizardCombatConfig.ts  # Attack animation + fireball tuning
     scenes/
@@ -181,7 +182,7 @@ Structures are placed left→right across the world, separated by `MIN_STRUCTURE
 
 ### Reachability guarantee
 
-`worldMap.ts` runs a BFS (`computeReachableRuns`) from the ground run over a **conservative walk-jump model**, then `pruneUnreachableRuns()` clears any platform run not reachable. Because starlights/murklings only spawn on surviving runs, **every starlight is guaranteed collectible**.
+`worldMap.ts` runs a BFS (`computeReachableRuns`) from the ground run over a **conservative walk-jump model**, then `pruneUnreachableRuns()` clears any platform run not reachable. Because starlights/murklings only spawn on surviving runs, **every starlight is guaranteed collectible**. Reachable runs are cached in `getCachedReachablePlatformRuns()` and refreshed on initial load and `regenerateWorldMap()` so spawn pickers avoid recomputing BFS each spawn.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -209,15 +210,37 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 
 ## Starlights & darkness
 
-**Goal:** The sky starts at **50% darkness**. Collect starlights to push darkness down; reach **0%** to win. If darkness hits **100%**, you lose.
+**Goal:** The sky starts at **50% darkness** each phase. Collect starlights to push darkness down. Clear **Phase 1** and **Phase 2** to win (darkness resets to 50% when Phase 2 begins). If darkness hits **100%** in either phase, you lose.
+
+### Two-phase progression
+
+Per-phase tuning lives in `src/game/config/phaseConfig.ts` (`getPhaseSettings(phase)`). `Game` scene receives `{ phase: 1 | 2 }` via `init()` on restart.
+
+| Setting | Phase 1 | Phase 2 |
+|---------|---------|---------|
+| `backgroundLayerKeys` | `bg-layer-1` … `bg-layer-4` | Same as Phase 1 (placeholder until phase-2 art is added) |
+| `darknessFillSeconds` | 180 | 120 |
+| `darknessStart` | 0.5 | 0.5 (reset on phase entry) |
+| `murklingDarknessSpike` | 0.08 | 0.11 |
+| `murklingPatrolSpeed` | 80 | 100 |
+| `murklingSpawnIntervalMs` | 3000 | 2200 |
+| `murklingInitialCount` | 10 | 12 |
+| `minGroundMurklingCount` | 3 | 4 |
+| `strikerInitialCount` | 0 | 3 |
+| `strikerSpawnChance` | 0 | 0.35 |
+
+- **Phase 1 clear:** darkness reaches 0% → interstitial **PHASE 1 COMPLETE** → `regenerateWorldMap()` → `scene.restart({ phase: 2 })`
+- **Phase 2 clear:** darkness reaches 0% → final victory celebration (same as former single-phase win)
+- **New Game** (pause): `regenerateWorldMap()` + `scene.restart({ phase: 1 })`
+- **HUD:** `Phase 1 / 2` or `Phase 2 / 2` label below the darkness meter (Phase 2 uses warmer tint)
+
+Shared starlight/HUD layout constants remain in `src/game/config/starlightConfig.ts`:
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `DARKNESS_START` | 0.5 | Sky darkness when the level begins |
-| `STARLIGHT_INITIAL_COUNT` | 5 | Starlights on screen at level start |
+| `STARLIGHT_INITIAL_COUNT` | 5 | Starlights on screen at each phase start |
 | `STARLIGHT_SPAWN_INTERVAL_MS` | 5000 | Auto-spawn interval; resets on collect |
-| `STARLIGHT_DARKNESS_RELIEF` | 0.1 | Darkness removed per starlight (`DARKNESS_START / STARLIGHT_INITIAL_COUNT`) |
-| `DARKNESS_FILL_SECONDS` | 180 | Time for darkness to rise from 0% to 100% (from a 50% start, ~90s to lose if nothing is collected) |
+| `DARKNESS_FILL_SECONDS` | 180 | Phase 1 passive rise (Phase 2 uses `phaseConfig`) |
 | `HUD_DARKNESS_DEPTH` | 5 | Darkness overlay — above bg (0–3), below platforms (10) |
 | `HUD_TEXT_DEPTH` | 6 | Starlight counter + darkness meter — above darkness overlay, below platforms |
 | `HUD_DARKNESS_BAR_WIDTH` | 220 | Darkness meter track width (pixels) |
@@ -235,31 +258,36 @@ To extend jump physics in `Game.ts`, keep these bounds in sync (or more conserva
 - **Sprite:** `public/assets/starlight/stars.png` (texture key `starlight`, source **48×48**; displayed at 24px)
 - **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — **pulse + twinkle** tweens per starlight (staggered by spawn position; two tweens each)
 - **Collect burst:** `playStarlightCollectAnimation()` — scale up, spin, fade out before the sprite is removed
-- **Spawns:** **5** starlights at start. Every **5s** (and on each collect, which also resets the timer) a new starlight spawns at a random **reachable** position via `pickRandomStarlightSpawn()` — no two starlights share the same `col,row,floatOffsetPx`. Placement uses ground / jump / arc heights on runs with length ≥ 3.
-- **Collection:** `physics.add.overlap` with player; each starlight reduces darkness by `STARLIGHT_DARKNESS_RELIEF` (0.1) and immediately spawns a replacement.
-- **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, then darkness meter. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
+- **Spawns:** **5** starlights at each phase start. Every **5s** (and on each collect, which also resets the timer) a new starlight spawns at a random **reachable** position via `pickRandomStarlightSpawn()` — no two starlights share the same `col,row,floatOffsetPx`. Placement uses ground / jump / arc heights on runs with length ≥ 3.
+- **Collection:** `physics.add.overlap` with player; each starlight reduces darkness by `starlightDarknessRelief` (0.1 per phase) and immediately spawns a replacement.
+- **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, darkness meter, **phase label**. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
-- **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`scene.restart()`).
-- **Win:** Darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
+- **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`regenerateWorldMap()` + restart at phase 1).
+- **Win:** Phase 2 darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); no scene change
 - **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); no scene change and no red overlay
 
 ---
 
 ## Murklings (baddies)
 
-Patrol enemies on platform runs; contact adds darkness (no HP system).
+Patrol enemies on platform runs; contact adds darkness (no HP system). Phase-specific counts and contact spike come from `phaseConfig.ts`; shared AI constants remain in `baddiesConfig.ts`.
+
+### Patrol murklings (both phases)
+
+| Constant | Phase 1 | Phase 2 | Meaning |
+|----------|---------|---------|---------|
+| `murklingDarknessSpike` | 0.08 | 0.11 | Darkness added per contact hit |
+| `murklingPatrolSpeed` | 80 | 100 | Horizontal patrol speed (px/s) |
+| `murklingSpawnIntervalMs` | 3000 | 2200 | Automatic spawn interval |
+| `murklingInitialCount` | 10 | 12 | Patrol murklings at phase start |
+| `minGroundMurklingCount` | 3 | 4 | Ground-row patrol murklings at start |
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `MURKLING_DARKNESS_SPIKE` | 0.08 | Darkness added per hit (8%) |
-| `MURKLING_PATROL_SPEED` | 80 | Horizontal patrol speed (px/s) |
-| `MURKLING_DISPLAY_SIZE` | 48 | On-screen sprite size |
+| `MURKLING_DISPLAY_SIZE` | 48 | On-screen patrol sprite size |
 | `MURKLING_HIT_COOLDOWN_MS` | 1200 | Invulnerability between hits |
-| `MURKLING_KNOCKBACK_X` | 180 | Horizontal knockback on hit |
+| `MURKLING_KNOCKBACK_X` | 180 | Horizontal knockback on contact |
 | `MIN_MURKLING_RUN_LENGTH` | 4 | Minimum platform run length to spawn |
-| `MURKLING_SPAWN_INTERVAL_MS` | 3000 | Automatic murkling spawn interval |
-| `MURKLING_INITIAL_COUNT` | 10 | Murklings on screen at level start |
-| `MIN_GROUND_MURKLING_COUNT` | 3 | Ground-row murklings guaranteed at level start |
 | `MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD` | 144 | Min horizontal distance (px) from wizard when spawning |
 | `MURKLING_WIZARD_DIRECTION_BIAS` | 0.7 | Probability murklings face the wizard on spawn / edge turn / jump-over |
 | `MURKLING_JUMP_OVER_CLEARANCE_PX` | 12 | Min vertical gap (wizard feet above murkling feet) for jump-over turn |
@@ -268,27 +296,48 @@ Patrol enemies on platform runs; contact adds darkness (no HP system).
 
 - **Sprite:** `murkling/murkling-sheet.png` (texture key `murkling`, 8×2 grid of 32×32 cells); loops `murkling-walk` while patrolling
 - **Die:** `murkling-die` animation uses row 1 of the same sheet (frames 8–15); plays on fireball hit, then sprite is removed
-- **When:** **10** murklings at level start (**3** guaranteed on the ground row, rest random), then one every **3s** via `pickRandomMurklingSpawn()` (timer pauses with the game)
+- **When:** Phase-tuned patrol counts at start, then timer spawns via `pickRandomMurklingSpawn()` (35% striker chance in Phase 2)
 - **Where:** Random **reachable** platform run (length ≥ 4), including the ground; spawn position weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
 - **Behavior:** Patrol between run edges on platform collider; on spawn, when turning at bounds, and when the wizard **jumps over** (airborne, feet above murkling, landed on the other side or murkling was walking away), **70%** chance (`MURKLING_WIZARD_DIRECTION_BIAS`) to walk toward the wizard’s X if valid on the run, otherwise classic bounce / midpoint-based / keep-current fallback; direction unchanged while the wizard walks past on the ground
-- **On hit:** Darkness spike, knockback, `wizard-hurt` animation, brief purple tint
+- **On contact:** Phase-tuned darkness spike, knockback, `wizard-hurt` animation, brief purple tint
 - **Fireball:** Space throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
 - **Depth:** 18 (above platforms, below player)
+
+### Striker murklings (Phase 2 only)
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `STRIKER_INITIAL_COUNT` | 3 | Strikers at Phase 2 start |
+| `STRIKER_SPAWN_CHANCE` | 0.35 | Timer spawn roll for strikers |
+| `STRIKER_DISPLAY_SIZE` | 52 | On-screen sprite size |
+| `STRIKER_TINT` | `0x9966cc` | Purple tint on shared `murkling` sheet |
+| `STRIKER_ATTACK_RANGE_PX` | 320 | Horizontal attack range on same tier |
+| `STRIKER_WINDUP_MS` | 400 | Pause before firing |
+| `STRIKER_ATTACK_COOLDOWN_MS` | 2200 | Cooldown after a shot |
+| `STRIKER_PROJECTILE_SPEED` | 280 | Bolt speed (px/s) |
+| `STRIKER_PROJECTILE_DARKNESS_SPIKE` | 0.09 | Darkness added on bolt hit |
+| `MURKLING_BOLT_DISPLAY_SIZE` | 16 | On-screen bolt size |
+
+- **Visual:** Same `murkling` sheet as patrol type, tinted purple and slightly larger
+- **AI:** On the same platform tier and within range, stop patrol → windup → fire `murkling-bolt` (procedural texture in Preloader) toward the wizard → cooldown → resume patrol
+- **Bolt:** Overlap with wizard applies darkness + hurt; destroyed on platform contact or max travel; fireballs kill strikers like patrol murklings
+- **Depth:** Murkling 18; bolt 17
 
 ---
 
 ## Background rendering
 
-Four parallax `TileSprite` layers in `Game.create()`:
+Four parallax `TileSprite` layers in `Game.create()`, keyed by `phaseSettings.backgroundLayerKeys` from `phaseConfig.ts`:
 
-| Layer key | Scroll factor |
+| Layer key (phase 1) | Scroll factor |
 |-----------|---------------|
 | `bg-layer-1` | 0.1 |
 | `bg-layer-2` | 0.25 |
 | `bg-layer-3` | 0.45 |
 | `bg-layer-4` | 0.65 |
 
-- Source textures: `public/assets/background/1.png`–`4.png` (576×324 each)
+- Source textures: `public/assets/background/1.png`–`4.png` (576×324 each); texture keys registered in `Preloader`
+- Phase 2 currently reuses the phase-1 keys — add new assets + Preloader entries, then set `backgroundLayerKeys` on `PHASE_2_SETTINGS`
 - `bgScale = max(viewportWidth/576, viewportHeight/324)`
 - `setTileScale(bgScale)` — horizontal tiling across world width, **one row vertically** (no vertical repeat)
 - No dark overlay layer (removed)
@@ -418,7 +467,7 @@ flowchart TD
 - Single spritesheet `wizard-sheet.png` (480×532, 5×7 grid of 96×76 cells); source PNGs in `wizard/` kept for editing — rebuild with `scripts/build-wizard-sheet.sh`
 - Rows: idle, walk, run, jump, hurt, attack, die (5 frames each); walk/run/jump/hurt/attack rows are trimmed and upscaled to idle body height in `scripts/build-wizard-sheet.sh` (idle is the reference; die keeps authored collapse)
 - Frames bottom-aligned in cells; feet at bottom of each cell (player origin `(0.5, 1)`); display locked to 96×76 via `WIZARD_DISPLAY_WIDTH` / `WIZARD_DISPLAY_HEIGHT`
-- Procedural `fireball` texture for projectiles
+- Procedural `fireball` and `murkling-bolt` textures for projectiles
 - Platform tiles `01–10`, `12–22` and `spring_.png` exist but are **not used**
 
 ### Murkling sprite notes

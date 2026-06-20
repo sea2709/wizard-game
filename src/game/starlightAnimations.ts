@@ -2,7 +2,6 @@ import { Scene } from 'phaser';
 import {
     STARLIGHT_COLLECT_MS,
     STARLIGHT_COLLECT_SCALE,
-    STARLIGHT_DISPLAY_SIZE,
     STARLIGHT_PULSE_MS,
     STARLIGHT_PULSE_SCALE,
     STARLIGHT_TWINKLE_ALPHA_MIN,
@@ -28,13 +27,12 @@ export function setupStarlightIdleAnimations (
 ): void
 {
     const seed = starlightSeed(col, row);
-    const pulseSize = STARLIGHT_DISPLAY_SIZE * STARLIGHT_PULSE_SCALE;
     const stagger = phaseDelay(seed, 600);
 
     scene.tweens.add({
         targets: starlight,
-        displayWidth: pulseSize,
-        displayHeight: pulseSize,
+        scaleX: STARLIGHT_PULSE_SCALE,
+        scaleY: STARLIGHT_PULSE_SCALE,
         duration: STARLIGHT_PULSE_MS,
         yoyo: true,
         repeat: -1,
@@ -61,13 +59,12 @@ export function playStarlightCollectAnimation (
 ): void
 {
     scene.tweens.killTweensOf(starlight);
-
-    const peakSize = STARLIGHT_DISPLAY_SIZE * STARLIGHT_COLLECT_SCALE;
+    starlight.setScale(1);
 
     scene.tweens.add({
         targets: starlight,
-        displayWidth: peakSize,
-        displayHeight: peakSize,
+        scaleX: STARLIGHT_COLLECT_SCALE,
+        scaleY: STARLIGHT_COLLECT_SCALE,
         alpha: 0,
         angle: starlight.angle + 140,
         duration: STARLIGHT_COLLECT_MS,

@@ -1,6 +1,6 @@
 import { MIN_MURKLING_RUN_LENGTH, MURKLING_MIN_SPAWN_DISTANCE_FROM_WIZARD } from '../config/baddiesConfig';
 import {
-    getReachablePlatformRuns,
+    getCachedReachablePlatformRuns,
     tileToWorld,
     WORLD_MAP_ROWS,
     type PlatformRun,
@@ -37,9 +37,9 @@ export function murklingSpawnKey (spawn: MurklingSpawn): string
     return `${spawn.col},${spawn.row}`;
 }
 
-function getReachableRunsForMurklings (map: WorldMap): PlatformRun[]
+function getReachableRunsForMurklings (): PlatformRun[]
 {
-    return getReachablePlatformRuns(map).filter(
+    return getCachedReachablePlatformRuns().filter(
         (run) => run.endCol - run.startCol + 1 >= MIN_MURKLING_RUN_LENGTH
     );
 }
@@ -141,7 +141,7 @@ export function pickRandomMurklingSpawn (
 ): MurklingSpawn | null
 {
     return tryPickSpawnInRuns(
-        getReachableRunsForMurklings(map),
+        getReachableRunsForMurklings(),
         occupied,
         random,
         MAX_RANDOM_SPAWN_ATTEMPTS,
@@ -157,7 +157,7 @@ export function pickRandomGroundMurklingSpawn (
     wizardX?: number
 ): MurklingSpawn | null
 {
-    const groundRuns = getReachableRunsForMurklings(map).filter((run) => run.row === GROUND_ROW);
+    const groundRuns = getReachableRunsForMurklings().filter((run) => run.row === GROUND_ROW);
 
     return tryPickSpawnInRuns(groundRuns, occupied, random, MAX_RANDOM_SPAWN_ATTEMPTS, wizardX);
 }
@@ -166,7 +166,7 @@ export function getMurklingSpawns (map: WorldMap): MurklingSpawn[]
 {
     const spawns: MurklingSpawn[] = [];
 
-    for (const run of getReachableRunsForMurklings(map))
+    for (const run of getReachableRunsForMurklings())
     {
         const runLength = run.endCol - run.startCol + 1;
 

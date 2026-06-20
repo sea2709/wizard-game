@@ -343,6 +343,20 @@ export function getReachablePlatformRuns (map: WorldMap): PlatformRun[]
     return runs.filter((_, index) => reachable[index]);
 }
 
+/** Cached reachable runs for the live `worldMap`; refreshed on generation. */
+let cachedReachablePlatformRuns: PlatformRun[] = [];
+
+function refreshReachablePlatformRunsCache (): void
+{
+    cachedReachablePlatformRuns = getReachablePlatformRuns(worldMap);
+}
+
+/** Reachable platform runs for the current world without recomputing BFS. */
+export function getCachedReachablePlatformRuns (): PlatformRun[]
+{
+    return cachedReachablePlatformRuns;
+}
+
 /**
  * Safety net: clear any platform run the player can't reach from the ground, so
  * a starlight is never spawned somewhere uncollectable.
@@ -742,6 +756,24 @@ function createDefaultWorldMap (): WorldMap
 
 /** Row-major grid: `worldMap[row][col]` — 0 = empty, 1 = platform, 2/4 = tree above platform */
 export const worldMap: WorldMap = createDefaultWorldMap();
+
+refreshReachablePlatformRunsCache();
+
+/** Replace the live world grid with a freshly generated layout (also updates `worldTreeScale`). */
+export function regenerateWorldMap (): void
+{
+    const fresh = createDefaultWorldMap();
+
+    for (let row = 0; row < WORLD_MAP_ROWS; row++)
+    {
+        for (let col = 0; col < WORLD_MAP_COLS; col++)
+        {
+            worldMap[row][col] = fresh[row][col];
+        }
+    }
+
+    refreshReachablePlatformRunsCache();
+}
 
 /** Tree width multipliers parallel to `worldMap` (meaningful where cell === 2). */
 export { worldTreeScale };

@@ -6,7 +6,7 @@ import {
 import {
     WORLD_MAP_COLS,
     WORLD_MAP_ROWS,
-    getReachablePlatformRuns,
+    getCachedReachablePlatformRuns,
     isPlatformCell,
     type PlatformRun,
     type WorldMap
@@ -131,9 +131,9 @@ function placeStarlight (
     }
 }
 
-function getReachableRunsForStarlights (map: WorldMap): PlatformRun[]
+function getReachableRunsForStarlights (): PlatformRun[]
 {
-    return getReachablePlatformRuns(map).filter(
+    return getCachedReachablePlatformRuns().filter(
         (run) => run.endCol - run.startCol + 1 >= MIN_PLATFORM_RUN_LENGTH
     );
 }
@@ -145,7 +145,7 @@ export function pickRandomStarlightSpawn (
     random: () => number = Math.random
 ): StarlightSpawn | null
 {
-    const runs = getReachableRunsForStarlights(map);
+    const runs = getReachableRunsForStarlights();
 
     if (runs.length === 0)
     {

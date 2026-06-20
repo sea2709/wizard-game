@@ -1,13 +1,8 @@
 import { Input, Math as PhaserMath, Scene } from 'phaser';
 import {
-    MURKLING_DARKNESS_SPIKE,
     MURKLING_DISPLAY_SIZE,
     MURKLING_HIT_COOLDOWN_MS,
     MURKLING_KNOCKBACK_X,
-    MURKLING_PATROL_SPEED,
-    MURKLING_SPAWN_INTERVAL_MS,
-    MURKLING_INITIAL_COUNT,
-    MIN_GROUND_MURKLING_COUNT,
     MURKLING_JUMP_OVER_CLEARANCE_PX,
     MURKLING_JUMP_OVER_WINDOW_MS,
     resolveMurklingPatrolDirection
@@ -15,8 +10,21 @@ import {
 import { EventBus } from '../EventBus';
 import { DEBUG_PHYSICS, DEBUG_WORLD_GRID } from '../debug';
 import {
-    DARKNESS_FILL_SECONDS,
-    DARKNESS_START,
+    getPhaseSettings,
+    MURKLING_BOLT_DISPLAY_SIZE,
+    STRIKER_ATTACK_COOLDOWN_MS,
+    STRIKER_ATTACK_RANGE_PX,
+    STRIKER_DISPLAY_SIZE,
+    STRIKER_PROJECTILE_DARKNESS_SPIKE,
+    STRIKER_PROJECTILE_SPEED,
+    STRIKER_TINT,
+    STRIKER_WINDUP_MS,
+    TOTAL_PHASES,
+    type GamePhase,
+    type MurklingType,
+    type PhaseSettings
+} from '../config/phaseConfig';
+import {
     HUD_DARKNESS_BAR_HEIGHT,
     HUD_DARKNESS_BAR_WIDTH,
     HUD_DARKNESS_BAR_X,
@@ -27,10 +35,7 @@ import {
     HUD_STARLIGHT_X,
     HUD_STARLIGHT_Y,
     HUD_TEXT_DEPTH,
-    STARLIGHT_DISPLAY_SIZE,
-    STARLIGHT_DARKNESS_RELIEF,
-    STARLIGHT_INITIAL_COUNT,
-    STARLIGHT_SPAWN_INTERVAL_MS
+    STARLIGHT_DISPLAY_SIZE
 } from '../config/starlightConfig';
 import { TREE_DEPTH } from '../config/elementsConfig';
 import { playStarlightCollectAnimation, setupStarlightIdleAnimations } from '../starlightAnimations';
@@ -67,7 +72,8 @@ import {
     isTreeCell,
     tileSurfaceY,
     tileToWorld,
-    worldMap
+    worldMap,
+    regenerateWorldMap
 } from '../world/worldMap';
 
 const PLAYER_SPEED = 240;
@@ -87,19 +93,52 @@ const JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * WALK_JUMP_ROWS 
 const RUN_JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * RUN_JUMP_ROWS * TILE_HEIGHT));
 const BACKGROUND_SCROLL_FACTORS = [0.1, 0.25, 0.45, 0.65];
 const PAUSE_MENU_DEPTH = 200;
+const PHASE_TRANSITION_DEPTH = 150;
+const HUD_PHASE_Y = HUD_DARKNESS_BAR_Y + HUD_DARKNESS_BAR_HEIGHT + 8;
+const PLAYER_START_X = 80;
+/** Cap gameplay tick delta so tab/GC pauses don't spike darkness or spawn timers. */
+const MAX_FRAME_DELTA_MS = 50;
+/** Patrol AI skipped beyond this margin outside the camera view. */
+const MURKLING_OFF_SCREEN_MARGIN = STRIKER_ATTACK_RANGE_PX;
 
 type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die' | 'attack';
+
+type GameSceneData = {
+    phase?: GamePhase;
+};
+
+type StrikerState = 'patrol' | 'windup' | 'cooldown';
+
+type MurklingSprite = Phaser.Types.Physics.Arcade.SpriteWithDynamicBody & {
+    spawnKey: string;
+    murklingType: MurklingType;
+    spawnRow: number;
+    patrolMinX: number;
+    patrolMaxX: number;
+    wizardSide: number;
+    jumpOverHandled: boolean;
+    jumpOverPendingAt: number;
+    strikerState: StrikerState;
+    strikerWindupAt: number;
+    strikerCooldownUntil: number;
+    patrolVelocityX: number;
+    dying: boolean;
+};
 
 export class Game extends Scene
 {
     worldWidth = 0;
+    currentPhase: GamePhase = 1;
+    phaseSettings!: PhaseSettings;
     backgroundLayers: Phaser.GameObjects.TileSprite[] = [];
     platformLayer: Phaser.Tilemaps.TilemapLayer;
+    decorativeTrees: Phaser.GameObjects.Group;
     player: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     spaceKey: Phaser.Input.Keyboard.Key;
     shiftKey: Phaser.Input.Keyboard.Key;
     escKey: Phaser.Input.Keyboard.Key;
+    enterKey: Phaser.Input.Keyboard.Key;
     playerAnimState: PlayerAnimState = 'idle';
     isHurt = false;
     isAttacking = false;
@@ -110,6 +149,7 @@ export class Game extends Scene
     worldGridDebug?: Phaser.GameObjects.Graphics;
     starlights: Phaser.Physics.Arcade.Group;
     murklings: Phaser.Physics.Arcade.Group;
+    murklingProjectiles: Phaser.Physics.Arcade.Group;
     fireballs: Phaser.Physics.Arcade.Group;
     darknessOverlay: Phaser.GameObjects.Rectangle;
     hudStarlightIcon: Phaser.GameObjects.Image;
@@ -118,12 +158,14 @@ export class Game extends Scene
     darknessBarFill: Phaser.GameObjects.Rectangle;
     darknessBarLabel: Phaser.GameObjects.Text;
     darknessBarText: Phaser.GameObjects.Text;
+    hudPhaseLabel: Phaser.GameObjects.Text;
     gameOverMessage?: Phaser.GameObjects.Text;
     gameOverTitle?: Phaser.GameObjects.Text;
-    darkness = DARKNESS_START;
+    darkness = 0.5;
     starlightsCollected = 0;
     totalStarlights = 0;
     starlightOccupiedKeys = new Set<string>();
+    murklingOccupiedKeys = new Set<string>();
     starlightSpawnElapsed = 0;
     murklingSpawnElapsed = 0;
     gameEnded = false;
@@ -135,15 +177,25 @@ export class Game extends Scene
     victoryGroundY = 0;
     victoryJumpTween?: Phaser.Tweens.Tween;
     isPaused = false;
+    isAwaitingPhaseContinue = false;
     pauseMenu?: Phaser.GameObjects.Container;
+    phaseTransitionMenu?: Phaser.GameObjects.Container;
 
     constructor ()
     {
         super('Game');
     }
 
+    init (data?: GameSceneData)
+    {
+        this.currentPhase = data?.phase ?? 1;
+        this.phaseSettings = getPhaseSettings(this.currentPhase);
+    }
+
     create ()
     {
+        this.resetPhaseRuntimeState();
+
         const { width, height } = this.scale;
         const centerY = height / 2;
 
@@ -154,7 +206,7 @@ export class Game extends Scene
         this.cameras.main.setBounds(0, 0, this.worldWidth, WORLD_HEIGHT);
         this.cameras.main.roundPixels = false;
 
-        const layerKeys = ['bg-layer-1', 'bg-layer-2', 'bg-layer-3', 'bg-layer-4'];
+        const layerKeys = this.phaseSettings.backgroundLayerKeys;
         const bgScale = Math.max(width / 576, height / 324);
         const bgDisplayHeight = 324 * bgScale;
 
@@ -168,7 +220,178 @@ export class Game extends Scene
             this.backgroundLayers.push(layer);
         });
 
+        this.decorativeTrees = this.add.group();
+        this.buildWorldGeometry();
+
+        this.player = this.physics.add.sprite(PLAYER_START_X, 0, 'wizard', 0);
+        this.resetPlayerToStart();
+        this.player.setOrigin(0.5, 1);
+        this.player.setDisplaySize(WIZARD_DISPLAY_WIDTH, WIZARD_DISPLAY_HEIGHT);
+        this.player.setDepth(20);
+        this.player.setCollideWorldBounds(true);
+        this.player.setDragX(PLAYER_DRAG_X);
+        this.updatePlayerBody();
+
+        this.physics.add.collider(this.player, this.platformLayer);
+
+        this.darknessOverlay = this.add.rectangle(0, 0, width, height, 0x020218, 1)
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setAlpha(0)
+            .setDepth(HUD_DARKNESS_DEPTH);
+
+        this.hudStarlightIcon = this.add.image(HUD_STARLIGHT_X, HUD_STARLIGHT_Y, 'starlight')
+            .setOrigin(0, 0)
+            .setDisplaySize(STARLIGHT_DISPLAY_SIZE, STARLIGHT_DISPLAY_SIZE)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        this.hudStarlightCount = this.add.text(
+            HUD_STARLIGHT_X + STARLIGHT_DISPLAY_SIZE + HUD_STARLIGHT_COUNT_GAP,
+            HUD_STARLIGHT_Y + STARLIGHT_DISPLAY_SIZE / 2,
+            '0/0',
+            {
+                fontFamily: 'Arial Black',
+                fontSize: 22,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 4
+            }
+        )
+            .setOrigin(0, 0.5)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        const barInnerWidth = HUD_DARKNESS_BAR_WIDTH - 4;
+        const barInnerHeight = HUD_DARKNESS_BAR_HEIGHT - 4;
+
+        this.darknessBarLabel = this.add.text(HUD_DARKNESS_BAR_X, HUD_DARKNESS_LABEL_Y, 'Darkness', {
+            fontFamily: 'Arial Black',
+            fontSize: 18,
+            color: '#fff8c0',
+            stroke: '#000000',
+            strokeThickness: 3
+        })
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        this.darknessBarTrack = this.add.rectangle(
+            HUD_DARKNESS_BAR_X,
+            HUD_DARKNESS_BAR_Y,
+            HUD_DARKNESS_BAR_WIDTH,
+            HUD_DARKNESS_BAR_HEIGHT,
+            0x120820,
+            0.75
+        )
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH)
+            .setStrokeStyle(2, 0xfff8c0, 0.5);
+
+        this.darknessBarFill = this.add.rectangle(
+            HUD_DARKNESS_BAR_X + 2,
+            HUD_DARKNESS_BAR_Y + 2,
+            barInnerWidth,
+            barInnerHeight,
+            0x5030a0,
+            1
+        )
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        this.darknessBarText = this.add.text(
+            HUD_DARKNESS_BAR_X + HUD_DARKNESS_BAR_WIDTH + 8,
+            HUD_DARKNESS_BAR_Y - 1,
+            '0%',
+            {
+                fontFamily: 'Arial Black',
+                fontSize: 16,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 3
+            }
+        )
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        this.hudPhaseLabel = this.add.text(
+            HUD_DARKNESS_BAR_X,
+            HUD_PHASE_Y,
+            `Phase ${this.currentPhase} / ${TOTAL_PHASES}`,
+            {
+                fontFamily: 'Arial Black',
+                fontSize: 16,
+                color: this.currentPhase === 2 ? '#ffaa66' : '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 3
+            }
+        )
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(HUD_TEXT_DEPTH);
+
+        this.spawnStarlights();
+        this.spawnMurklings();
+        this.setupFireballs();
+        this.setupMurklingProjectiles();
+
+        this.updateHud();
+        this.updateDarknessVisuals();
+
+        this.cameras.main.startFollow(this.player, true, 1, 0);
+
+        this.cursors = this.input.keyboard!.createCursorKeys();
+        this.spaceKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SPACE);
+        this.shiftKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SHIFT);
+        this.escKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ESC);
+        this.enterKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ENTER);
+
+        if (import.meta.env.DEV)
+        {
+            this.setupDebugControls();
+        }
+
+        EventBus.emit('current-scene-ready', this);
+    }
+
+    resetPhaseRuntimeState ()
+    {
+        this.darkness = this.phaseSettings.darknessStart;
+        this.starlightsCollected = 0;
+        this.totalStarlights = 0;
+        this.starlightOccupiedKeys = new Set();
+        this.murklingOccupiedKeys = new Set();
+        this.starlightSpawnElapsed = 0;
+        this.murklingSpawnElapsed = 0;
+        this.gameEnded = false;
+        this.lastMurklingHitTime = 0;
+        this.hudStarlightsCollected = -1;
+        this.hudTotalStarlights = -1;
+        this.hudDarknessPercent = -1;
+        this.isVictoryCelebration = false;
+        this.isPaused = false;
+        this.isAwaitingPhaseContinue = false;
+        this.backgroundLayers = [];
+        this.victoryJumpTween?.stop();
+        this.victoryJumpTween = undefined;
+        this.attackFireballTimer?.remove();
+        this.attackFireballTimer = undefined;
+        this.attackCompleteTimer?.remove();
+        this.attackCompleteTimer = undefined;
+        this.isAttacking = false;
+        this.isHurt = false;
+        this.playerAnimState = 'idle';
+        this.airFrames = 0;
+        this.groundedFrames = 0;
+    }
+
+    buildWorldGeometry ()
+    {
         this.platformLayer = createPlatformLayer(this, worldMap, 10);
+        this.decorativeTrees.clear(true, true);
 
         for (let row = 0; row < WORLD_MAP_ROWS; row++)
         {
@@ -202,125 +425,19 @@ export class Game extends Scene
                 const aspect = tree.width / tree.height;
 
                 tree.setDisplaySize(displayWidth, displayWidth / aspect);
+                this.decorativeTrees.add(tree);
             }
         }
+    }
 
+    resetPlayerToStart ()
+    {
         const groundRow = WORLD_MAP_ROWS - 1;
-        const playerX = 80;
 
-        this.player = this.physics.add.sprite(playerX, tileSurfaceY(groundRow), 'wizard', 0);
-        this.player.setOrigin(0.5, 1);
-        this.player.setDisplaySize(WIZARD_DISPLAY_WIDTH, WIZARD_DISPLAY_HEIGHT);
-        this.player.setDepth(20);
-        this.player.setCollideWorldBounds(true);
-        this.player.setDragX(PLAYER_DRAG_X);
-
-        this.updatePlayerBody();
-
-        this.physics.add.collider(this.player, this.platformLayer);
-
-        this.darknessOverlay = this.add.rectangle(0, 0, width, height, 0x020218, 1)
-            .setOrigin(0, 0)
-            .setScrollFactor(0)
-            .setAlpha(0)
-            .setDepth(HUD_DARKNESS_DEPTH);
-
-        this.hudStarlightIcon = this.add.image(HUD_STARLIGHT_X, HUD_STARLIGHT_Y, 'starlight')
-            .setOrigin(0, 0)
-            .setDisplaySize(STARLIGHT_DISPLAY_SIZE, STARLIGHT_DISPLAY_SIZE)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH);
-
-        this.hudStarlightCount = this.add.text(
-            HUD_STARLIGHT_X + STARLIGHT_DISPLAY_SIZE + HUD_STARLIGHT_COUNT_GAP,
-            HUD_STARLIGHT_Y + STARLIGHT_DISPLAY_SIZE / 2,
-            '0/0',
-            {
-                fontFamily: 'Arial Black',
-                fontSize: 22,
-                color: '#fff8c0',
-                stroke: '#000000',
-                strokeThickness: 4
-            }
-        )
-            .setOrigin(0, 0.5)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH);
-
-        const barInnerHeight = HUD_DARKNESS_BAR_HEIGHT - 4;
-
-        this.darknessBarLabel = this.add.text(HUD_DARKNESS_BAR_X, HUD_DARKNESS_LABEL_Y, 'Darkness', {
-            fontFamily: 'Arial Black',
-            fontSize: 18,
-            color: '#fff8c0',
-            stroke: '#000000',
-            strokeThickness: 3
-        })
-            .setOrigin(0, 0)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH);
-
-        this.darknessBarTrack = this.add.rectangle(
-            HUD_DARKNESS_BAR_X,
-            HUD_DARKNESS_BAR_Y,
-            HUD_DARKNESS_BAR_WIDTH,
-            HUD_DARKNESS_BAR_HEIGHT,
-            0x120820,
-            0.75
-        )
-            .setOrigin(0, 0)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH)
-            .setStrokeStyle(2, 0xfff8c0, 0.5);
-
-        this.darknessBarFill = this.add.rectangle(
-            HUD_DARKNESS_BAR_X + 2,
-            HUD_DARKNESS_BAR_Y + 2,
-            0,
-            barInnerHeight,
-            0x5030a0,
-            1
-        )
-            .setOrigin(0, 0)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH);
-
-        this.darknessBarText = this.add.text(
-            HUD_DARKNESS_BAR_X + HUD_DARKNESS_BAR_WIDTH + 8,
-            HUD_DARKNESS_BAR_Y - 1,
-            '0%',
-            {
-                fontFamily: 'Arial Black',
-                fontSize: 16,
-                color: '#fff8c0',
-                stroke: '#000000',
-                strokeThickness: 3
-            }
-        )
-            .setOrigin(0, 0)
-            .setScrollFactor(0)
-            .setDepth(HUD_TEXT_DEPTH);
-
-        this.spawnStarlights();
-        this.spawnMurklings();
-        this.setupFireballs();
-
-        this.updateHud();
-        this.updateDarknessVisuals();
-
-        this.cameras.main.startFollow(this.player, true, 1, 0);
-
-        this.cursors = this.input.keyboard!.createCursorKeys();
-        this.spaceKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SPACE);
-        this.shiftKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.SHIFT);
-        this.escKey = this.input.keyboard!.addKey(Input.Keyboard.KeyCodes.ESC);
-
-        if (import.meta.env.DEV)
-        {
-            this.setupDebugControls();
-        }
-
-        EventBus.emit('current-scene-ready', this);
+        this.player.setPosition(PLAYER_START_X, tileSurfaceY(groundRow));
+        this.player.setVelocity(0, 0);
+        this.player.setFlipX(false);
+        this.player.clearTint();
     }
 
     spawnStarlights ()
@@ -332,7 +449,7 @@ export class Game extends Scene
             immovable: true
         });
 
-        for (let i = 0; i < STARLIGHT_INITIAL_COUNT; i++)
+        for (let i = 0; i < this.phaseSettings.starlightInitialCount; i++)
         {
             this.spawnRandomStarlight();
         }
@@ -390,6 +507,7 @@ export class Game extends Scene
     spawnMurklings ()
     {
         this.murklingSpawnElapsed = 0;
+        this.murklingOccupiedKeys = new Set();
         this.murklings = this.physics.add.group();
 
         this.physics.add.collider(this.murklings, this.platformLayer);
@@ -399,14 +517,72 @@ export class Game extends Scene
             (_player, murklingObject) => this.hitMurkling(murklingObject as Phaser.Physics.Arcade.Sprite)
         );
 
-        for (let i = 0; i < MIN_GROUND_MURKLING_COUNT; i++)
+        for (let i = 0; i < this.phaseSettings.minGroundMurklingCount; i++)
         {
             this.spawnGroundMurkling();
         }
 
-        for (let i = MIN_GROUND_MURKLING_COUNT; i < MURKLING_INITIAL_COUNT; i++)
+        for (let i = this.phaseSettings.minGroundMurklingCount; i < this.phaseSettings.murklingInitialCount; i++)
         {
-            this.spawnRandomMurkling();
+            this.spawnRandomMurkling('patrol');
+        }
+
+        for (let i = 0; i < this.phaseSettings.strikerInitialCount; i++)
+        {
+            this.spawnRandomMurkling('striker');
+        }
+    }
+
+    setupMurklingProjectiles ()
+    {
+        this.murklingProjectiles = this.physics.add.group({
+            allowGravity: false,
+            maxSize: 32
+        });
+
+        this.physics.add.overlap(
+            this.player,
+            this.murklingProjectiles,
+            (_player, boltObject) => this.hitMurklingProjectile(boltObject as Phaser.Physics.Arcade.Sprite)
+        );
+
+        this.physics.add.collider(this.murklingProjectiles, this.platformLayer, (boltObject) =>
+        {
+            (boltObject as Phaser.Physics.Arcade.Sprite).destroy();
+        });
+    }
+
+    hitMurklingProjectile (bolt: Phaser.Physics.Arcade.Sprite)
+    {
+        if (this.gameEnded || !bolt.active)
+        {
+            return;
+        }
+
+        bolt.destroy();
+        this.applyWizardDarknessHit(STRIKER_PROJECTILE_DARKNESS_SPIKE);
+    }
+
+    applyWizardDarknessHit (darknessSpike: number)
+    {
+        const now = this.time.now;
+
+        if (now - this.lastMurklingHitTime < MURKLING_HIT_COOLDOWN_MS)
+        {
+            return;
+        }
+
+        this.lastMurklingHitTime = now;
+        this.darkness = Math.min(1, this.darkness + darknessSpike);
+        this.updateDarknessVisuals();
+        this.updateHud();
+        this.playPlayerHurt();
+        this.player.setTint(0xaa66ff);
+        this.time.delayedCall(200, () => this.player.clearTint());
+
+        if (this.darkness >= 1)
+        {
+            this.endGame('darkness');
         }
     }
 
@@ -439,12 +615,19 @@ export class Game extends Scene
             return;
         }
 
+        const murklingSprite = murkling as MurklingSprite;
+
+        if (murklingSprite.spawnKey)
+        {
+            this.murklingOccupiedKeys.delete(murklingSprite.spawnKey);
+        }
+
         murkling.destroy();
     }
 
     isMurklingDying (murkling: Phaser.Physics.Arcade.Sprite): boolean
     {
-        return murkling.getData('dying') === true;
+        return (murkling as MurklingSprite).dying === true;
     }
 
     killMurkling (murkling: Phaser.Physics.Arcade.Sprite)
@@ -454,9 +637,17 @@ export class Game extends Scene
             return;
         }
 
-        murkling.setData('dying', true);
+        const murklingSprite = murkling as MurklingSprite;
+
+        murklingSprite.dying = true;
+        murklingSprite.patrolVelocityX = 0;
         murkling.setVelocity(0, 0);
-        murkling.body.enable = false;
+
+        if (murkling.body)
+        {
+            murkling.body.enable = false;
+        }
+
         murkling.anims.play('murkling-die');
         murkling.once('animationcomplete-murkling-die', () =>
         {
@@ -507,7 +698,6 @@ export class Game extends Scene
         fireball.setDisplaySize(FIREBALL_DISPLAY_SIZE, FIREBALL_DISPLAY_SIZE);
         fireball.setVelocityX(direction * FIREBALL_SPEED);
         fireball.body.setAllowGravity(false);
-        fireball.setCollideWorldBounds(true);
 
         if (this.groundedFrames >= 1)
         {
@@ -534,7 +724,7 @@ export class Game extends Scene
                 }
             }
 
-            if (fireball.x < -FIREBALL_DISPLAY_SIZE || fireball.x > this.worldWidth + FIREBALL_DISPLAY_SIZE)
+            if (fireball.x < 0 || fireball.x > this.worldWidth)
             {
                 fireball.destroy();
             }
@@ -601,29 +791,11 @@ export class Game extends Scene
         this.isAttacking = false;
     }
 
-    getActiveMurklingSpawnKeys (): Set<string>
-    {
-        const occupied = new Set<string>();
-
-        for (const murklingObject of this.murklings.getChildren())
-        {
-            const murkling = murklingObject as Phaser.Physics.Arcade.Sprite;
-            const spawnKey = murkling.getData('spawnKey') as string | undefined;
-
-            if (murkling.active && spawnKey)
-            {
-                occupied.add(spawnKey);
-            }
-        }
-
-        return occupied;
-    }
-
-    spawnGroundMurkling ()
+    spawnGroundMurkling (type: MurklingType = 'patrol')
     {
         const spawn = pickRandomGroundMurklingSpawn(
             worldMap,
-            this.getActiveMurklingSpawnKeys(),
+            this.murklingOccupiedKeys,
             Math.random,
             this.player.x
         );
@@ -633,14 +805,14 @@ export class Game extends Scene
             return;
         }
 
-        this.createMurkling(spawn);
+        this.createMurkling(spawn, type);
     }
 
-    spawnRandomMurkling ()
+    spawnRandomMurkling (forcedType?: MurklingType)
     {
         const spawn = pickRandomMurklingSpawn(
             worldMap,
-            this.getActiveMurklingSpawnKeys(),
+            this.murklingOccupiedKeys,
             Math.random,
             this.player.x
         );
@@ -650,23 +822,49 @@ export class Game extends Scene
             return;
         }
 
-        this.createMurkling(spawn);
+        const type = forcedType ?? this.rollMurklingSpawnType();
+
+        this.createMurkling(spawn, type);
     }
 
-    createMurkling ({ col, row, startCol, endCol }: MurklingSpawn)
+    rollMurklingSpawnType (): MurklingType
+    {
+        if (this.phaseSettings.strikerSpawnChance <= 0)
+        {
+            return 'patrol';
+        }
+
+        return Math.random() < this.phaseSettings.strikerSpawnChance ? 'striker' : 'patrol';
+    }
+
+    createMurkling ({ col, row, startCol, endCol }: MurklingSpawn, type: MurklingType = 'patrol')
     {
         const spawnKey = murklingSpawnKey({ col, row, startCol, endCol });
+        const displaySize = type === 'striker' ? STRIKER_DISPLAY_SIZE : MURKLING_DISPLAY_SIZE;
 
         const { x } = tileToWorld(col, row);
         const y = tileSurfaceY(row);
-        const murkling = this.murklings.create(x, y, 'murkling') as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+        const murkling = this.murklings.create(x, y, 'murkling') as MurklingSprite;
 
         murkling.setOrigin(0.5, 1);
         murkling.setDepth(18);
-        murkling.setDisplaySize(MURKLING_DISPLAY_SIZE, MURKLING_DISPLAY_SIZE);
+        murkling.setDisplaySize(displaySize, displaySize);
         murkling.setCollideWorldBounds(false);
         murkling.anims.play('murkling-walk');
-        murkling.setData('spawnKey', spawnKey);
+
+        murkling.spawnKey = spawnKey;
+        murkling.murklingType = type;
+        murkling.spawnRow = row;
+        murkling.dying = false;
+        murkling.strikerState = 'patrol';
+        murkling.strikerWindupAt = 0;
+        murkling.strikerCooldownUntil = 0;
+        murkling.patrolVelocityX = NaN;
+
+        if (type === 'striker')
+        {
+            murkling.setTint(STRIKER_TINT);
+        }
 
         const patrolMinX = startCol * TILE_WIDTH + TILE_WIDTH / 2;
         const patrolMaxX = endCol * TILE_WIDTH + TILE_WIDTH / 2;
@@ -679,18 +877,17 @@ export class Game extends Scene
             fallbackMoveRight
         );
 
-        murkling.setData('patrolMinX', patrolMinX);
-        murkling.setData('patrolMaxX', patrolMaxX);
-        murkling.setData(
-            'wizardSide',
-            this.player.x < x - 8 ? -1 : this.player.x > x + 8 ? 1 : 0
-        );
-        murkling.setData('jumpOverHandled', false);
-        murkling.setData('jumpOverPendingAt', 0);
+        murkling.patrolMinX = patrolMinX;
+        murkling.patrolMaxX = patrolMaxX;
+        murkling.wizardSide = this.player.x < x - 8 ? -1 : this.player.x > x + 8 ? 1 : 0;
+        murkling.jumpOverHandled = false;
+        murkling.jumpOverPendingAt = 0;
         this.setMurklingDirection(murkling, moveRight);
 
-        const bodyWidth = MURKLING_DISPLAY_SIZE * 0.7;
-        const bodyHeight = MURKLING_DISPLAY_SIZE * 0.55;
+        this.murklingOccupiedKeys.add(spawnKey);
+
+        const bodyWidth = displaySize * 0.7;
+        const bodyHeight = displaySize * 0.55;
 
         murkling.body.setSize(bodyWidth, bodyHeight);
         murkling.body.setOffset(
@@ -699,10 +896,37 @@ export class Game extends Scene
         );
     }
 
-    setMurklingDirection (murkling: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody, moveRight: boolean)
+    ensureMurklingVelocityX (murkling: MurklingSprite, velocityX: number)
     {
-        murkling.setFlipX(!moveRight);
-        murkling.setVelocityX(moveRight ? MURKLING_PATROL_SPEED : -MURKLING_PATROL_SPEED);
+        if (murkling.patrolVelocityX === velocityX)
+        {
+            return;
+        }
+
+        murkling.setVelocityX(velocityX);
+        murkling.patrolVelocityX = velocityX;
+    }
+
+    isMurklingNearCamera (murkling: MurklingSprite): boolean
+    {
+        const cam = this.cameras.main;
+        const left = cam.scrollX - MURKLING_OFF_SCREEN_MARGIN;
+        const right = cam.scrollX + cam.width + MURKLING_OFF_SCREEN_MARGIN;
+
+        return murkling.x >= left && murkling.x <= right;
+    }
+
+    setMurklingDirection (murkling: MurklingSprite, moveRight: boolean)
+    {
+        const speed = this.phaseSettings.murklingPatrolSpeed;
+        const shouldFlipX = !moveRight;
+
+        if (murkling.flipX !== shouldFlipX)
+        {
+            murkling.setFlipX(shouldFlipX);
+        }
+
+        this.ensureMurklingVelocityX(murkling, moveRight ? speed : -speed);
     }
 
     updateMurklings ()
@@ -710,19 +934,30 @@ export class Game extends Scene
         const wizardX = this.player.x;
         const wizardY = this.player.y;
         const wizardInAir = !this.player.body.onFloor();
+        const patrolSpeed = this.phaseSettings.murklingPatrolSpeed;
 
         for (const murklingObject of this.murklings.getChildren())
         {
-            const murkling = murklingObject as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+            const murkling = murklingObject as MurklingSprite;
 
-            if (this.isMurklingDying(murkling))
+            if (murkling.dying)
             {
                 continue;
             }
 
-            const patrolMinX = murkling.getData('patrolMinX') as number;
-            const patrolMaxX = murkling.getData('patrolMaxX') as number;
-            const prevWizardSide = murkling.getData('wizardSide') as number ?? 0;
+            if (murkling.murklingType === 'striker')
+            {
+                this.updateStrikerMurkling(murkling, wizardX, wizardY);
+                continue;
+            }
+
+            if (!this.isMurklingNearCamera(murkling))
+            {
+                continue;
+            }
+
+            const { patrolMinX, patrolMaxX } = murkling;
+            const prevWizardSide = murkling.wizardSide;
             const wizardOnRight = wizardX > murkling.x + 8;
             const wizardOnLeft = wizardX < murkling.x - 8;
             const wizardSide = wizardOnRight ? 1 : wizardOnLeft ? -1 : 0;
@@ -731,14 +966,13 @@ export class Game extends Scene
                 (wizardOnRight && !movingRight) || (wizardOnLeft && movingRight);
             const wizardAbove = wizardY < murkling.y - MURKLING_JUMP_OVER_CLEARANCE_PX;
             const crossedWizard = prevWizardSide * wizardSide < 0;
-            const jumpOverPendingAt = murkling.getData('jumpOverPendingAt') as number ?? 0;
             const jumpOverWindowOpen =
-                jumpOverPendingAt > 0
-                && this.time.now - jumpOverPendingAt < MURKLING_JUMP_OVER_WINDOW_MS;
+                murkling.jumpOverPendingAt > 0
+                && this.time.now - murkling.jumpOverPendingAt < MURKLING_JUMP_OVER_WINDOW_MS;
 
             if (wizardInAir && crossedWizard)
             {
-                murkling.setData('jumpOverPendingAt', this.time.now);
+                murkling.jumpOverPendingAt = this.time.now;
             }
 
             const shouldConsiderJumpOver =
@@ -748,9 +982,7 @@ export class Game extends Scene
 
             if (shouldConsiderJumpOver)
             {
-                const jumpOverHandled = murkling.getData('jumpOverHandled') as boolean;
-
-                if (!jumpOverHandled)
+                if (!murkling.jumpOverHandled)
                 {
                     const towardMoveRight = wizardSide !== 0 ? wizardSide > 0 : null;
                     const moveRight = resolveMurklingPatrolDirection(
@@ -763,16 +995,16 @@ export class Game extends Scene
                     );
 
                     this.setMurklingDirection(murkling, moveRight);
-                    murkling.setData('jumpOverHandled', true);
+                    murkling.jumpOverHandled = true;
                 }
             }
             else if (!jumpOverWindowOpen && Math.abs(wizardX - murkling.x) > MURKLING_DISPLAY_SIZE * 2)
             {
-                murkling.setData('jumpOverHandled', false);
-                murkling.setData('jumpOverPendingAt', 0);
+                murkling.jumpOverHandled = false;
+                murkling.jumpOverPendingAt = 0;
             }
 
-            murkling.setData('wizardSide', wizardSide);
+            murkling.wizardSide = wizardSide;
 
             if (murkling.x <= patrolMinX)
             {
@@ -800,7 +1032,165 @@ export class Game extends Scene
             }
             else
             {
-                murkling.setVelocityX(murkling.flipX ? -MURKLING_PATROL_SPEED : MURKLING_PATROL_SPEED);
+                this.ensureMurklingVelocityX(
+                    murkling,
+                    murkling.flipX ? -patrolSpeed : patrolSpeed
+                );
+            }
+        }
+    }
+
+    updateStrikerMurkling (
+        murkling: MurklingSprite,
+        wizardX: number,
+        wizardY: number
+    )
+    {
+        const { patrolMinX, patrolMaxX, spawnRow } = murkling;
+        const now = this.time.now;
+        let strikerState = murkling.strikerState;
+        const inRange = this.isWizardInStrikerRange(wizardX, wizardY, murkling.x, murkling.y, spawnRow);
+
+        if (strikerState === 'cooldown')
+        {
+            if (now < murkling.strikerCooldownUntil)
+            {
+                this.ensureMurklingVelocityX(murkling, 0);
+                return;
+            }
+
+            strikerState = 'patrol';
+            murkling.strikerState = 'patrol';
+        }
+
+        if (strikerState === 'windup')
+        {
+            this.ensureMurklingVelocityX(murkling, 0);
+
+            const shouldFlipX = wizardX < murkling.x;
+
+            if (murkling.flipX !== shouldFlipX)
+            {
+                murkling.setFlipX(shouldFlipX);
+            }
+
+            if (!inRange)
+            {
+                murkling.strikerState = 'patrol';
+                murkling.strikerWindupAt = 0;
+            }
+            else if (now - murkling.strikerWindupAt >= STRIKER_WINDUP_MS)
+            {
+                this.spawnStrikerBolt(murkling, wizardX, wizardY);
+                murkling.strikerState = 'cooldown';
+                murkling.strikerCooldownUntil = now + STRIKER_ATTACK_COOLDOWN_MS;
+                murkling.strikerWindupAt = 0;
+            }
+
+            return;
+        }
+
+        if (inRange)
+        {
+            this.ensureMurklingVelocityX(murkling, 0);
+            murkling.setFlipX(wizardX < murkling.x);
+            murkling.strikerState = 'windup';
+            murkling.strikerWindupAt = now;
+            return;
+        }
+
+        if (murkling.x <= patrolMinX)
+        {
+            murkling.x = patrolMinX;
+            this.setMurklingDirection(murkling, true);
+        }
+        else if (murkling.x >= patrolMaxX)
+        {
+            murkling.x = patrolMaxX;
+            this.setMurklingDirection(murkling, false);
+        }
+        else
+        {
+            this.ensureMurklingVelocityX(
+                murkling,
+                murkling.flipX ? -this.phaseSettings.murklingPatrolSpeed : this.phaseSettings.murklingPatrolSpeed
+            );
+        }
+    }
+
+    isWizardInStrikerRange (
+        wizardX: number,
+        wizardY: number,
+        murklingX: number,
+        murklingY: number,
+        spawnRow: number
+    ): boolean
+    {
+        const platformY = tileSurfaceY(spawnRow);
+        const onSameTier = Math.abs(wizardY - platformY) <= TILE_HEIGHT;
+        const horizontalDistance = Math.abs(wizardX - murklingX);
+        const wizardNotFarAbove = wizardY >= murklingY - MURKLING_JUMP_OVER_CLEARANCE_PX;
+
+        return onSameTier
+            && horizontalDistance <= STRIKER_ATTACK_RANGE_PX
+            && wizardNotFarAbove;
+    }
+
+    spawnStrikerBolt (
+        murkling: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody,
+        wizardX: number,
+        wizardY: number
+    )
+    {
+        const originY = murkling.y - STRIKER_DISPLAY_SIZE * 0.45;
+        const targetY = wizardY - WIZARD_DISPLAY_HEIGHT * 0.5;
+        const dx = wizardX - murkling.x;
+        const dy = targetY - originY;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const bolt = this.murklingProjectiles.create(
+            murkling.x,
+            originY,
+            'murkling-bolt'
+        ) as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+
+        bolt.setDepth(17);
+        bolt.setDisplaySize(MURKLING_BOLT_DISPLAY_SIZE, MURKLING_BOLT_DISPLAY_SIZE);
+        bolt.setVelocity(
+            (dx / distance) * STRIKER_PROJECTILE_SPEED,
+            (dy / distance) * STRIKER_PROJECTILE_SPEED
+        );
+        bolt.body.setAllowGravity(false);
+        bolt.setCollideWorldBounds(true);
+        bolt.setData('spawnX', murkling.x);
+        bolt.setData('spawnY', originY);
+        bolt.setData('maxTravel', STRIKER_ATTACK_RANGE_PX * 1.5);
+    }
+
+    updateMurklingProjectiles ()
+    {
+        for (const boltObject of this.murklingProjectiles.getChildren())
+        {
+            const bolt = boltObject as Phaser.Physics.Arcade.Sprite;
+            const spawnX = bolt.getData('spawnX') as number;
+            const spawnY = bolt.getData('spawnY') as number;
+            const maxTravel = bolt.getData('maxTravel') as number;
+            const dx = bolt.x - spawnX;
+            const dy = bolt.y - spawnY;
+
+            if (dx * dx + dy * dy >= maxTravel * maxTravel)
+            {
+                bolt.destroy();
+                continue;
+            }
+
+            if (
+                bolt.x < -MURKLING_BOLT_DISPLAY_SIZE
+                || bolt.x > this.worldWidth + MURKLING_BOLT_DISPLAY_SIZE
+                || bolt.y < -MURKLING_BOLT_DISPLAY_SIZE
+                || bolt.y > WORLD_HEIGHT + MURKLING_BOLT_DISPLAY_SIZE
+            )
+            {
+                bolt.destroy();
             }
         }
     }
@@ -812,29 +1202,10 @@ export class Game extends Scene
             return;
         }
 
-        const now = this.time.now;
-
-        if (now - this.lastMurklingHitTime < MURKLING_HIT_COOLDOWN_MS)
-        {
-            return;
-        }
-
-        this.lastMurklingHitTime = now;
-        this.darkness = Math.min(1, this.darkness + MURKLING_DARKNESS_SPIKE);
-        this.updateDarknessVisuals();
-        this.updateHud();
-
         const knockback = this.player.x < murkling.x ? -MURKLING_KNOCKBACK_X : MURKLING_KNOCKBACK_X;
 
         this.player.setVelocityX(knockback);
-        this.playPlayerHurt();
-        this.player.setTint(0xaa66ff);
-        this.time.delayedCall(200, () => this.player.clearTint());
-
-        if (this.darkness >= 1)
-        {
-            this.endGame('darkness');
-        }
+        this.applyWizardDarknessHit(this.phaseSettings.murklingDarknessSpike);
     }
 
     collectStarlight (starlight: Phaser.Physics.Arcade.Sprite)
@@ -859,7 +1230,7 @@ export class Game extends Scene
             }
 
             this.starlightsCollected++;
-            this.darkness = Math.max(0, this.darkness - STARLIGHT_DARKNESS_RELIEF);
+            this.darkness = Math.max(0, this.darkness - this.phaseSettings.starlightDarknessRelief);
 
             this.updateDarknessVisuals();
             this.updateHud();
@@ -868,18 +1239,90 @@ export class Game extends Scene
 
             if (this.darkness <= 0)
             {
-                this.endGame('victory');
+                if (this.currentPhase < TOTAL_PHASES)
+                {
+                    this.completePhase();
+                }
+                else
+                {
+                    this.endGame('victory');
+                }
             }
         });
+    }
+
+    completePhase ()
+    {
+        this.isAwaitingPhaseContinue = true;
+        this.physics.pause();
+        this.tweens.pauseAll();
+        this.showPhaseTransitionMenu();
+    }
+
+    showPhaseTransitionMenu ()
+    {
+        const { width, height } = this.scale;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        this.phaseTransitionMenu = this.add.container(0, 0)
+            .setScrollFactor(0)
+            .setDepth(PHASE_TRANSITION_DEPTH);
+
+        const backdrop = this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.6);
+        const title = this.add.text(centerX, centerY - 72, `PHASE ${this.currentPhase} COMPLETE`, {
+            fontFamily: 'Arial Black',
+            fontSize: 72,
+            color: '#fff8c0',
+            stroke: '#000000',
+            strokeThickness: 10,
+            align: 'center'
+        }).setOrigin(0.5);
+
+        const message = this.add.text(centerX, centerY + 8, 'The Murk deepens — press Enter to continue', {
+            fontFamily: 'Arial Black',
+            fontSize: 28,
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 5,
+            align: 'center'
+        }).setOrigin(0.5);
+
+        const continueButton = this.createPauseMenuButton(centerX, centerY + 88, 'Continue', () =>
+        {
+            this.continueToNextPhase();
+        });
+
+        this.phaseTransitionMenu.add([
+            backdrop,
+            title,
+            message,
+            continueButton.background,
+            continueButton.label
+        ]);
+    }
+
+    continueToNextPhase ()
+    {
+        if (!this.isAwaitingPhaseContinue)
+        {
+            return;
+        }
+
+        regenerateWorldMap();
+        this.scene.restart({ phase: (this.currentPhase + 1) as GamePhase });
+    }
+
+    hidePhaseTransitionMenu ()
+    {
+        this.phaseTransitionMenu?.destroy(true);
+        this.phaseTransitionMenu = undefined;
     }
 
     updateDarknessVisuals ()
     {
         this.darknessOverlay.setAlpha(this.darkness);
-
-        const barInnerWidth = HUD_DARKNESS_BAR_WIDTH - 4;
-
-        this.darknessBarFill.setSize(barInnerWidth * this.darkness, HUD_DARKNESS_BAR_HEIGHT - 4);
+        this.darknessBarFill.setScale(this.darkness, 1);
 
         const percent = Math.round(this.darkness * 100);
 
@@ -1085,7 +1528,8 @@ export class Game extends Scene
     restartGame ()
     {
         this.isPaused = false;
-        this.scene.restart();
+        regenerateWorldMap();
+        this.scene.restart({ phase: 1 });
     }
 
     showPauseMenu ()
@@ -1319,6 +1763,19 @@ export class Game extends Scene
             return;
         }
 
+        if (this.isAwaitingPhaseContinue)
+        {
+            if (
+                Input.Keyboard.JustDown(this.enterKey)
+                || Input.Keyboard.JustDown(this.spaceKey)
+            )
+            {
+                this.continueToNextPhase();
+            }
+
+            return;
+        }
+
         if (Input.Keyboard.JustDown(this.escKey) && !this.gameEnded)
         {
             this.togglePause();
@@ -1329,23 +1786,28 @@ export class Game extends Scene
             return;
         }
 
-        this.starlightSpawnElapsed += delta;
+        const dt = Math.min(delta, MAX_FRAME_DELTA_MS);
 
-        if (this.starlightSpawnElapsed >= STARLIGHT_SPAWN_INTERVAL_MS)
+        this.starlightSpawnElapsed += dt;
+
+        if (this.starlightSpawnElapsed >= this.phaseSettings.starlightSpawnIntervalMs)
         {
             this.starlightSpawnElapsed = 0;
             this.spawnRandomStarlight();
         }
 
-        this.murklingSpawnElapsed += delta;
+        this.murklingSpawnElapsed += dt;
 
-        if (this.murklingSpawnElapsed >= MURKLING_SPAWN_INTERVAL_MS)
+        if (this.murklingSpawnElapsed >= this.phaseSettings.murklingSpawnIntervalMs)
         {
             this.murklingSpawnElapsed = 0;
             this.spawnRandomMurkling();
         }
 
-        this.darkness = Math.min(1, this.darkness + delta / (DARKNESS_FILL_SECONDS * 1000));
+        this.darkness = Math.min(
+            1,
+            this.darkness + dt / (this.phaseSettings.darknessFillSeconds * 1000)
+        );
         this.updateDarknessVisuals();
 
         if (this.darkness >= 1)
@@ -1355,6 +1817,7 @@ export class Game extends Scene
         }
 
         this.updateMurklings();
+        this.updateMurklingProjectiles();
         this.updateFireballs();
 
         const onFloor = this.player.body.onFloor();

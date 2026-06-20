@@ -123,6 +123,7 @@ export class Preloader extends Scene
         });
 
         this.createFireballTexture();
+        this.createMurklingBoltTexture();
         this.configureMurklingTextures();
 
         this.anims.create({
@@ -165,6 +166,20 @@ export class Preloader extends Scene
         graphics.fillCircle(size / 2, size / 2, 5);
 
         graphics.generateTexture('fireball', size, size);
+        graphics.destroy();
+    }
+
+    createMurklingBoltTexture ()
+    {
+        const size = 16;
+        const graphics = this.add.graphics();
+
+        graphics.fillStyle(0x442266, 1);
+        graphics.fillCircle(size / 2, size / 2, 7);
+        graphics.fillStyle(0x9966cc, 1);
+        graphics.fillCircle(size / 2, size / 2, 4);
+
+        graphics.generateTexture('murkling-bolt', size, size);
         graphics.destroy();
     }
 }
