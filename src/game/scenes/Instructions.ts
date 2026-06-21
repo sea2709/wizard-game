@@ -20,7 +20,10 @@ const INSTRUCTION_PAGES = [
         'Murklings lurk on the platforms — bump one and the sky',
         'gets moodier. Toast them with a fireball instead!',
         'From Summer onward, purple Strikers shoot shadow bolts —',
-        'they grow bolder through Fall and Winter.'
+        'they grow bolder through Fall and Winter.',
+        '',
+        'Press Esc anytime during the game to pause. From the pause menu,',
+        'you can resume your run or start a new game.'
     ]
 ];
 

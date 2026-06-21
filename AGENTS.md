@@ -72,7 +72,7 @@ flowchart LR
 |-------------|----------------|------|
 | Preloader   | `Preloader`    | Entry scene — loads all game assets, creates animations |
 | Story | `Story` | Opening narrative (2 pages); **Next** / **Continue** / Enter / Space → Instructions |
-| Instructions| `Instructions` | How-to-play field guide (2 pages); **Next** / **Off we go!** / Enter / Space → Game |
+| Instructions| `Instructions` | How-to-play field guide (2 pages); controls + **Esc** to pause; **Next** / **Off we go!** / Enter / Space → Game |
 | MainMenu    | `MainMenu`     | Template UI; `changeScene()` → Game |
 | Game        | `Game`         | Scrolling world, platform, wizard player |
 | GameOver    | `GameOver`     | Template scene (unused in normal win/lose flow) |
@@ -284,7 +284,7 @@ Shared starlight/HUD layout constants remain in `src/game/config/starlightConfig
 - **Collection:** `physics.add.overlap` with player; each starlight reduces darkness by `starlightDarknessRelief` (0.1 per season) and immediately spawns a replacement.
 - **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, darkness meter, **season label**. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
-- **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`regenerateWorldMap()` + restart at `DEFAULT_START_SEASON` from `debug.ts`).
+- **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`regenerateWorldMap()` + restart at `DEFAULT_START_SEASON` from `debug.ts`). **Up/Down** selects an option; **Enter** or **Space** confirms; mouse hover also updates the selection.
 - **Win:** Winter darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); **this run** stats below (starlights, murklings); no scene change
 - **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); **this run** stats below (same layout as victory; run totals are not added to lifetime); no scene change and no red overlay
 
@@ -456,7 +456,7 @@ Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox i
 | Left / Right (hold) | Move horizontally |
 | Shift + Left / Right (hold) | Run (faster speed + run animation) |
 | Up (press) | Jump (higher and farther if running) |
-| Esc (press) | Pause / resume — opens menu with **Resume** and **New Game** |
+| Esc (press) | Pause / resume — opens menu with **Resume** and **New Game**; **Up/Down** + **Enter** or **Space** choose an option while paused |
 | Space (press) | Throw a fireball (wizard-attack animation) |
 
 ### Ground / air detection

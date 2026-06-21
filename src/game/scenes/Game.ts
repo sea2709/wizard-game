@@ -99,6 +99,9 @@ const VICTORY_JUMP_FRAME_RATE = (VICTORY_JUMP_FRAMES / VICTORY_JUMP_DURATION_MS)
 const JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * WALK_JUMP_ROWS * TILE_HEIGHT));
 const RUN_JUMP_VELOCITY = -Math.round(Math.sqrt(2 * ARCADE_GRAVITY * RUN_JUMP_ROWS * TILE_HEIGHT));
 const PAUSE_MENU_DEPTH = 200;
+const PAUSE_MENU_BUTTON_NORMAL = 0x5030a0;
+const PAUSE_MENU_BUTTON_SELECTED = 0x6840c0;
+const SEASON_MENU_BUTTON_HOVER = 0x6840c0;
 const SEASON_TRANSITION_DEPTH = 150;
 const HUD_SEASON_Y = HUD_DARKNESS_BAR_Y + HUD_DARKNESS_BAR_HEIGHT + 8;
 const PLAYER_START_X = 80;
@@ -106,6 +109,12 @@ const PLAYER_START_X = 80;
 const MAX_FRAME_DELTA_MS = 50;
 /** Patrol AI skipped beyond this margin outside the camera view. */
 const MURKLING_OFF_SCREEN_MARGIN = STRIKER_ATTACK_RANGE_PX;
+
+type PauseMenuButton = {
+    background: Phaser.GameObjects.Rectangle;
+    label: Phaser.GameObjects.Text;
+    onSelect: () => void;
+};
 
 type PlayerAnimState = 'idle' | 'walk' | 'run' | 'jump' | 'hurt' | 'die' | 'attack';
 
@@ -190,8 +199,10 @@ export class Game extends Scene
     victoryJumpTween?: Phaser.Tweens.Tween;
     isPaused = false;
     isAwaitingSeasonContinue = false;
-    pauseMenu?: Phaser.GameObjects.Container;
-    seasonTransitionMenu?: Phaser.GameObjects.Container;
+    pauseMenuElements: Phaser.GameObjects.GameObject[] = [];
+    pauseMenuButtons: PauseMenuButton[] = [];
+    pauseMenuSelectedIndex = 0;
+    seasonTransitionMenuElements: Phaser.GameObjects.GameObject[] = [];
 
     constructor ()
     {
@@ -1333,46 +1344,56 @@ export class Game extends Scene
         const centerX = width / 2;
         const centerY = height / 2;
 
-        this.seasonTransitionMenu = this.add.container(0, 0)
-            .setScrollFactor(0)
-            .setDepth(SEASON_TRANSITION_DEPTH);
+        const backdrop = this.addScreenSpaceMenuObject(
+            this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.6),
+            SEASON_TRANSITION_DEPTH
+        );
+        const title = this.addScreenSpaceMenuObject(
+            this.add.text(
+                centerX,
+                centerY - 72,
+                `${this.seasonSettings.name.toUpperCase()} COMPLETE`,
+                {
+                    fontFamily: 'Arial Black',
+                    fontSize: 72,
+                    color: '#fff8c0',
+                    stroke: '#000000',
+                    strokeThickness: 10,
+                    align: 'center'
+                }
+            ).setOrigin(0.5),
+            SEASON_TRANSITION_DEPTH
+        );
 
-        const backdrop = this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.6);
-        const title = this.add.text(
-            centerX,
-            centerY - 72,
-            `${this.seasonSettings.name.toUpperCase()} COMPLETE`,
-            {
+        const message = this.addScreenSpaceMenuObject(
+            this.add.text(centerX, centerY + 8, this.seasonSettings.transitionMessage, {
                 fontFamily: 'Arial Black',
-                fontSize: 72,
-                color: '#fff8c0',
+                fontSize: 28,
+                color: '#ffffff',
                 stroke: '#000000',
-                strokeThickness: 10,
+                strokeThickness: 5,
                 align: 'center'
-            }
-        ).setOrigin(0.5);
+            }).setOrigin(0.5),
+            SEASON_TRANSITION_DEPTH
+        );
 
-        const message = this.add.text(centerX, centerY + 8, this.seasonSettings.transitionMessage, {
-            fontFamily: 'Arial Black',
-            fontSize: 28,
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 5,
-            align: 'center'
-        }).setOrigin(0.5);
+        const continueButton = this.createPauseMenuButton(
+            centerX,
+            centerY + 88,
+            'Continue',
+            () => this.continueToNextSeason(),
+            SEASON_TRANSITION_DEPTH
+        );
+        continueButton.background.on('pointerover', () => continueButton.background.setFillStyle(SEASON_MENU_BUTTON_HOVER));
+        continueButton.background.on('pointerout', () => continueButton.background.setFillStyle(PAUSE_MENU_BUTTON_NORMAL));
 
-        const continueButton = this.createPauseMenuButton(centerX, centerY + 88, 'Continue', () =>
-        {
-            this.continueToNextSeason();
-        });
-
-        this.seasonTransitionMenu.add([
+        this.seasonTransitionMenuElements = [
             backdrop,
             title,
             message,
             continueButton.background,
             continueButton.label
-        ]);
+        ];
     }
 
     continueToNextSeason ()
@@ -1393,8 +1414,8 @@ export class Game extends Scene
 
     hideSeasonTransitionMenu ()
     {
-        this.seasonTransitionMenu?.destroy(true);
-        this.seasonTransitionMenu = undefined;
+        this.destroyScreenMenu(this.seasonTransitionMenuElements);
+        this.seasonTransitionMenuElements = [];
     }
 
     updateDarknessVisuals ()
@@ -1654,59 +1675,161 @@ export class Game extends Scene
         const centerX = width / 2;
         const centerY = height / 2;
 
-        this.pauseMenu = this.add.container(0, 0)
-            .setScrollFactor(0)
-            .setDepth(PAUSE_MENU_DEPTH);
+        const backdrop = this.addScreenSpaceMenuObject(
+            this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.55),
+            PAUSE_MENU_DEPTH
+        );
+        const panel = this.addScreenSpaceMenuObject(
+            this.add.rectangle(centerX, centerY, 440, 300, 0x120820, 0.96)
+                .setStrokeStyle(3, 0xfff8c0, 0.8),
+            PAUSE_MENU_DEPTH
+        );
 
-        const backdrop = this.add.rectangle(centerX, centerY, width, height, 0x000000, 0.55);
-        const panel = this.add.rectangle(centerX, centerY, 440, 300, 0x120820, 0.96)
-            .setStrokeStyle(3, 0xfff8c0, 0.8);
+        const title = this.addScreenSpaceMenuObject(
+            this.add.text(centerX, centerY - 88, 'The game is being paused', {
+                fontFamily: 'Arial Black',
+                fontSize: 30,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 5,
+                align: 'center'
+            }).setOrigin(0.5),
+            PAUSE_MENU_DEPTH
+        );
 
-        const title = this.add.text(centerX, centerY - 88, 'The game is being paused', {
-            fontFamily: 'Arial Black',
-            fontSize: 30,
-            color: '#fff8c0',
-            stroke: '#000000',
-            strokeThickness: 5,
-            align: 'center'
-        }).setOrigin(0.5);
+        const resumeButton = this.createPauseMenuButton(
+            centerX,
+            centerY - 8,
+            'Resume',
+            () => this.resumeGame(),
+            PAUSE_MENU_DEPTH
+        );
+        const newGameButton = this.createPauseMenuButton(
+            centerX,
+            centerY + 62,
+            'New Game',
+            () => this.restartGame(),
+            PAUSE_MENU_DEPTH
+        );
 
-        const resumeButton = this.createPauseMenuButton(centerX, centerY - 8, 'Resume', () => this.resumeGame());
-        const newGameButton = this.createPauseMenuButton(centerX, centerY + 62, 'New Game', () => this.restartGame());
+        this.pauseMenuButtons = [
+            { ...resumeButton, onSelect: () => this.resumeGame() },
+            { ...newGameButton, onSelect: () => this.restartGame() }
+        ];
+        this.pauseMenuButtons.forEach((button, index) =>
+        {
+            button.background.on('pointerover', () => this.setPauseMenuSelection(index));
+        });
+        this.setPauseMenuSelection(0);
 
-        this.pauseMenu.add([
+        const hint = this.addScreenSpaceMenuObject(
+            this.add.text(centerX, centerY + 128, 'Up/Down · Enter or Space to choose', {
+                fontFamily: 'Arial Black',
+                fontSize: 18,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 3,
+                align: 'center'
+            }).setOrigin(0.5),
+            PAUSE_MENU_DEPTH
+        );
+
+        this.pauseMenuElements = [
             backdrop,
             panel,
             title,
             resumeButton.background,
             resumeButton.label,
             newGameButton.background,
-            newGameButton.label
-        ]);
+            newGameButton.label,
+            hint
+        ];
+    }
+
+    setPauseMenuSelection (index: number)
+    {
+        if (this.pauseMenuButtons.length === 0)
+        {
+            return;
+        }
+
+        this.pauseMenuSelectedIndex = PhaserMath.Wrap(index, 0, this.pauseMenuButtons.length);
+
+        this.pauseMenuButtons.forEach((button, buttonIndex) =>
+        {
+            button.background.setFillStyle(
+                buttonIndex === this.pauseMenuSelectedIndex
+                    ? PAUSE_MENU_BUTTON_SELECTED
+                    : PAUSE_MENU_BUTTON_NORMAL
+            );
+        });
+    }
+
+    updatePauseMenuInput ()
+    {
+        if (Input.Keyboard.JustDown(this.cursors.up!))
+        {
+            this.setPauseMenuSelection(this.pauseMenuSelectedIndex - 1);
+        }
+        else if (Input.Keyboard.JustDown(this.cursors.down!))
+        {
+            this.setPauseMenuSelection(this.pauseMenuSelectedIndex + 1);
+        }
+
+        if (
+            Input.Keyboard.JustDown(this.enterKey)
+            || Input.Keyboard.JustDown(this.spaceKey)
+        )
+        {
+            this.pauseMenuButtons[this.pauseMenuSelectedIndex]?.onSelect();
+        }
+    }
+
+    addScreenSpaceMenuObject (obj: Phaser.GameObjects.Rectangle, depth: number): Phaser.GameObjects.Rectangle;
+    addScreenSpaceMenuObject (obj: Phaser.GameObjects.Text, depth: number): Phaser.GameObjects.Text;
+    addScreenSpaceMenuObject (
+        obj: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text,
+        depth: number
+    ): Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text
+    {
+        return obj.setScrollFactor(0).setDepth(depth);
+    }
+
+    destroyScreenMenu (elements: Phaser.GameObjects.GameObject[])
+    {
+        for (const element of elements)
+        {
+            element.destroy();
+        }
     }
 
     createPauseMenuButton (
         x: number,
         y: number,
         label: string,
-        onSelect: () => void
+        onSelect: () => void,
+        depth: number
     )
     {
-        const background = this.add.rectangle(x, y, 300, 48, 0x5030a0, 1)
-            .setStrokeStyle(2, 0xfff8c0, 0.9)
-            .setInteractive({ useHandCursor: true });
+        const background = this.addScreenSpaceMenuObject(
+            this.add.rectangle(x, y, 300, 48, 0x5030a0, 1)
+                .setStrokeStyle(2, 0xfff8c0, 0.9)
+                .setInteractive({ useHandCursor: true }),
+            depth
+        );
 
-        const text = this.add.text(x, y, label, {
-            fontFamily: 'Arial Black',
-            fontSize: 24,
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4,
-            align: 'center'
-        }).setOrigin(0.5);
+        const text = this.addScreenSpaceMenuObject(
+            this.add.text(x, y, label, {
+                fontFamily: 'Arial Black',
+                fontSize: 24,
+                color: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 4,
+                align: 'center'
+            }).setOrigin(0.5),
+            depth
+        );
 
-        background.on('pointerover', () => background.setFillStyle(0x6840c0));
-        background.on('pointerout', () => background.setFillStyle(0x5030a0));
         background.on('pointerdown', onSelect);
 
         return { background, label: text };
@@ -1714,8 +1837,10 @@ export class Game extends Scene
 
     hidePauseMenu ()
     {
-        this.pauseMenu?.destroy(true);
-        this.pauseMenu = undefined;
+        this.destroyScreenMenu(this.pauseMenuElements);
+        this.pauseMenuElements = [];
+        this.pauseMenuButtons = [];
+        this.pauseMenuSelectedIndex = 0;
     }
 
     setupDebugControls ()
@@ -1899,6 +2024,7 @@ export class Game extends Scene
 
         if (this.isPaused)
         {
+            this.updatePauseMenuInput();
             return;
         }
 
