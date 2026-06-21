@@ -1,3 +1,4 @@
+import { playMenuKeySound } from '../audio/gameAudio';
 import { EventBus } from '../EventBus';
 import { Scene } from 'phaser';
 import { addMenuSceneBackground } from './menuSceneBackground';
@@ -122,6 +123,7 @@ export class Instructions extends Scene
             return;
         }
 
+        playMenuKeySound(this.game);
         this.hasAdvanced = true;
 
         if (this.pageIndex < INSTRUCTION_PAGES.length - 1)

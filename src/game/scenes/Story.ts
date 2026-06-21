@@ -1,3 +1,4 @@
+import { playMenuKeySound } from '../audio/gameAudio';
 import { EventBus } from '../EventBus';
 import { Math as PhaserMath, Scene } from 'phaser';
 import { MURKLING_DISPLAY_SIZE } from '../config/baddiesConfig';
@@ -575,6 +576,7 @@ export class Story extends Scene
             return;
         }
 
+        playMenuKeySound(this.game);
         this.hasAdvanced = true;
 
         if (this.pageIndex < STORY_PAGES.length - 1)

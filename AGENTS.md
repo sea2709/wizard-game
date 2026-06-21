@@ -30,12 +30,15 @@ src/
       starlightSpawns.ts   # Starlight spawn positions from platform runs
       murklingSpawns.ts    # Murkling spawn positions from platform runs
     config/
+      audioConfig.ts         # Background music keys + volume
       baddiesConfig.ts       # Murkling patrol, hit, and spawn tuning
       elementsConfig.ts      # Draw-order depth offsets + `worldDepthFromFeetY()`
       starlightConfig.ts     # Darkness timer + starlight placement tuning
       wizardCombatConfig.ts  # Attack animation + fireball tuning
       seasonConfig.ts        # Per-season difficulty + striker murkling tuning
     starlightAnimations.ts # Starlight idle + collect tweens
+    audio/
+      gameAudio.ts         # Background music playback helpers
     scenes/
       Preloader.ts         # Entry scene — loads game assets, registers animations
       Story.ts           # Opening narrative before Instructions
@@ -52,6 +55,7 @@ public/assets/
   murkling/                # Murkling spritesheet + source strips
   logo.png, star.png
   starlight/               # Starlight collectible (stars.png, 48×48)
+  audio/                   # Music + SFX (`Overture.mp3`, `fx_mixdown.mp3`, sprite JSON)
 ```
 
 ---
@@ -251,8 +255,8 @@ Per-season tuning lives in `src/game/config/seasonConfig.ts` (`getSeasonSettings
 | `strikerAttackCooldownMs` | 2200 | 2200 | 1750 | 1300 |
 | `strikerPatrolSpeed` | 80 | 87 | 93 | 120 |
 
-- **Season clear (Spring–Fall):** darkness reaches 0% → interstitial **{SEASON} COMPLETE** → `regenerateWorldMap()` → `scene.restart({ season: N + 1 })`
-- **Winter clear:** darkness reaches 0% → final victory celebration
+- **Season clear (Spring–Fall):** darkness reaches 0% → ascending `ping` fanfare (3 hits) → interstitial **{SEASON} COMPLETE** → `regenerateWorldMap()` → `scene.restart({ season: N + 1 })`; **Continue** / Enter / Space plays `numkey`
+- **Winter clear:** darkness reaches 0% → `escape` victory sting → final victory celebration
 - **New Game** (pause): `regenerateWorldMap()` + `scene.restart({ season: DEFAULT_START_SEASON })` (currently Summer for testing; see `debug.ts`)
 - **HUD:** `Spring (1/4)` … `Winter (4/4)` label below the darkness meter (season-specific tint from `seasonSettings.hudColor`)
 
@@ -281,12 +285,12 @@ Shared starlight/HUD layout constants remain in `src/game/config/starlightConfig
 - **Idle motion:** `setupStarlightIdleAnimations()` in `starlightAnimations.ts` — **pulse + twinkle** tweens per starlight (staggered by spawn position; two tweens each)
 - **Collect burst:** `playStarlightCollectAnimation()` — scale up, spin, fade out before the sprite is removed
 - **Spawns:** **5** starlights at each season start. Every **5s** (and on each collect, which also resets the timer) a new starlight spawns at a random **reachable** position via `pickRandomStarlightSpawn()` — no two starlights share the same `col,row,floatOffsetPx`. Placement uses ground / jump / arc heights on runs with length ≥ 3.
-- **Collection:** `physics.add.overlap` with player; each starlight reduces darkness by `starlightDarknessRelief` (0.1 per season) and immediately spawns a replacement.
+- **Collection:** `physics.add.overlap` with player; each starlight plays the `ping` sfx and reduces darkness by `starlightDarknessRelief` (0.1 per season) and immediately spawns a replacement.
 - **HUD:** Top-left — starlight icon (`hudStarlightIcon`) + `collected/total` count (`hudStarlightCount`; total increments on each spawn), **Darkness** label, darkness meter, **season label**. Bar updates in `updateDarknessVisuals()`, starlight count in `updateHud()`.
 - **Overlay:** Full-screen `darknessOverlay` (scroll factor 0, depth 5); opacity tracks darkness (0 = clear, 1 = fully dark). Renders above parallax background but **below** platforms, trees, starlights, murklings, and the player. Updated every frame via `updateDarknessVisuals()`.
 - **Pause:** `Esc` toggles pause (not available after win/lose). Freezes physics/tweens and shows a screen-space dialog: *The game is being paused* with **Resume** and **New Game** (`regenerateWorldMap()` + restart at `DEFAULT_START_SEASON` from `debug.ts`). **Up/Down** selects an option; **Enter** or **Space** confirms; mouse hover also updates the selection.
-- **Win:** Winter darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); **this run** stats below (starlights, murklings); no scene change
-- **Lose:** Darkness reaches 100% → gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); **this run** stats below (same layout as victory; run totals are not added to lifetime); no scene change and no red overlay
+- **Win:** Winter darkness reaches 0% → gameplay freezes in place (`physics.pause()`), wizard snaps to the nearest platform surface at or below their column (`getPlatformSurfaceYAt`), then loops `wizard-jump` with a vertical tween timed to walk-jump physics (full walk-jump height, ~1.1s per bounce; jump anim frame rate scaled to match), centered **VICTORY** title (104px, `#fff8c0`) + `You saved the world from the darkness!` subtitle (depth 100, scroll factor 0); **this run** stats below (starlights, murklings); **New Game** button + Enter/Space restart (`regenerateWorldMap()` + `scene.restart({ season: DEFAULT_START_SEASON, isNewRun: true })`)
+- **Lose:** Darkness reaches 100% → `death` sfx, gameplay freezes in place (`physics.pause()`), wizard plays `wizard-die`, centered **GAME OVER** title (104px, `#fff8c0`) + `The sky went dark...` subtitle (depth 100, scroll factor 0); **this run** stats below (same layout as victory; run totals are not added to lifetime); **New Game** button + Enter/Space restart (same as victory); no red overlay
 
 ### Player stats (`src/game/stats/gameStats.ts`)
 
@@ -339,8 +343,8 @@ Patrol enemies on platform runs; contact adds darkness (no HP system). Season-sp
 - **When:** Season-tuned patrol counts at start, then timer spawns via `pickRandomMurklingSpawn()` (striker chance ramps from Summer onward)
 - **Where:** Season start guarantees `minGroundMurklingCount` on the ground row; other initial + timer spawns use `pickRandomMurklingSpawn()` — **85%** chance on a floating platform run when available, else ground. Within the chosen tier, spawn position is weighted by run length (cols); no two active murklings share the same `col,row` spawn cell; spawn must be ≥ **144px** horizontally from the wizard
 - **Behavior:** Patrol between run edges on platform collider; on spawn, when turning at bounds, and when the wizard **jumps over** (airborne, feet above murkling, landed on the other side or murkling was walking away), **70%** chance (`MURKLING_WIZARD_DIRECTION_BIAS`) to walk toward the wizard’s X if valid on the run, otherwise classic bounce / midpoint-based / keep-current fallback; direction unchanged while the wizard walks past on the ground
-- **On contact:** Season-tuned darkness spike, knockback, `wizard-hurt` animation, brief purple tint
-- **Fireball:** Space throws a fireball (`fireball` texture) in facing direction; plays `murkling-die` on overlap, then removes the murkling
+- **On contact:** Season-tuned darkness spike, knockback, `boss hit` sfx + `wizard-hurt` animation, brief purple tint
+- **Fireball:** Space throws a fireball (`fireball` texture) in facing direction; `alien death` sfx + `murkling-die` on overlap, then removes the murkling
 - **Depth:** `worldDepthFromFeetY(murkling.y, DEPTH_OFFSET_MURKLING)` — updated each frame
 
 ### Striker murklings (Summer onward, ramping through Winter)
@@ -455,7 +459,7 @@ Player is `physics.add.sprite` with origin `(0.5, 1)` (feet at bottom). Hitbox i
 |-------|--------|
 | Left / Right (hold) | Move horizontally |
 | Shift + Left / Right (hold) | Run (faster speed + run animation) |
-| Up (press) | Jump (higher and farther if running) |
+| Up (press) | Jump (higher and farther if running); plays `squit` sfx (quieter walk jump, slightly louder run jump with pitch variation) |
 | Esc (press) | Pause / resume — opens menu with **Resume** and **New Game**; **Up/Down** + **Enter** or **Space** choose an option while paused |
 | Space (press) | Throw a fireball (wizard-attack animation) |
 
@@ -498,7 +502,7 @@ Run speed and boosted jump apply in air while Shift + direction remain held.
 | `FIREBALL_DISPLAY_SIZE` | 20 | On-screen fireball diameter |
 | `FIREBALL_GROUND_MAX_RANGE` | 480 | Max horizontal travel when fired on the ground (px) |
 
-- **Space** plays `wizard-attack` (locks movement/anim until complete), then spawns a `fireball` projectile in facing direction
+- **Space** plays `wizard-attack` (locks movement/anim until complete), plays the `shot` sfx, then spawns a `fireball` projectile in facing direction
 - Fireballs destroy murklings on overlap and despawn on platform hit or leaving world bounds; ground shots also despawn after **480px** horizontal travel
 - Depth from `worldDepthFromFeetY(fireball.y, DEPTH_OFFSET_FIREBALL)` — updated each frame
 
@@ -537,6 +541,17 @@ flowchart TD
 | `platform/elements/tree2-spring.png` … `tree2-winter.png` | `tree2-spring` … `tree2-winter` |
 | `wizard/wizard-sheet.png` | `wizard` (spritesheet, 96×76 cells) |
 | `murkling/murkling-sheet.png` | `murkling` (spritesheet, 32×32 cells) |
+| `audio/Overture.mp3` | `overture` (background music) |
+| `audio/fx_mixdown.mp3` + `audio/fix_mixdown.json` | `fx` (audio sprite) |
+
+### Loaded audio
+
+| Asset | Sound key | Playback |
+|-------|-----------|----------|
+| `audio/Overture.mp3` | `overture` | Looped background music; `initOvertureMusic()` in `Preloader.create()` starts playback on first click/tap/key via Phaser `sound.unlocked` (browser autoplay policy) |
+| `audio/fx_mixdown.mp3` + `audio/fix_mixdown.json` | `fx` | Audio sprite — `numkey` (menu confirm), `ping` (starlight + season-clear fanfare), `squit` (jump), `shot` (attack), `escape` (full victory), `alien death` (murkling kill), `boss hit` (wizard hurt), `death` (game over) |
+
+Volume: `MUSIC_VOLUME` (0.45), `SFX_VOLUME` (0.55), jump `SFX_JUMP_WALK_VOLUME` / `SFX_JUMP_RUN_VOLUME`, season-clear `SFX_SEASON_COMPLETE_VOLUME` (0.58), and victory `SFX_VICTORY_VOLUME` (0.6) in `audioConfig.ts`. The sound manager is global — music continues across Story → Instructions → Game.
 
 ### Registered animations
 

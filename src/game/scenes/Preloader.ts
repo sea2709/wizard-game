@@ -1,3 +1,5 @@
+import { initOvertureMusic } from '../audio/gameAudio';
+import { SFX_FX_SPRITE_KEY } from '../config/audioConfig';
 import { Scene, Textures } from 'phaser';
 import {
     MURKLING_DIE_FPS,
@@ -67,6 +69,11 @@ export class Preloader extends Scene
             frameWidth: MURKLING_FRAME_SIZE,
             frameHeight: MURKLING_FRAME_SIZE
         });
+
+        this.load.audio('overture', 'audio/Overture.mp3');
+        this.load.audioSprite(SFX_FX_SPRITE_KEY, 'audio/fix_mixdown.json', [
+            'audio/fx_mixdown.mp3'
+        ]);
     }
 
     create ()
@@ -141,6 +148,8 @@ export class Preloader extends Scene
             frameRate: MURKLING_DIE_FPS,
             repeat: 0
         });
+
+        initOvertureMusic(this.game);
 
         this.scene.start('Story');
     }

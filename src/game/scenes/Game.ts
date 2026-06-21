@@ -1,3 +1,14 @@
+import {
+    playMenuKeySound,
+    playMurklingDeathSound,
+    playSeasonCompleteSound,
+    playStarlightCollectSound,
+    playVictorySound,
+    playWizardAttackSound,
+    playWizardDeathSound,
+    playWizardHitSound,
+    playWizardJumpSound
+} from '../audio/gameAudio';
 import { Input, Math as PhaserMath, Scene } from 'phaser';
 import {
     MURKLING_DISPLAY_SIZE,
@@ -203,6 +214,7 @@ export class Game extends Scene
     pauseMenuButtons: PauseMenuButton[] = [];
     pauseMenuSelectedIndex = 0;
     seasonTransitionMenuElements: Phaser.GameObjects.GameObject[] = [];
+    endGameMenuElements: Phaser.GameObjects.GameObject[] = [];
 
     constructor ()
     {
@@ -622,14 +634,17 @@ export class Game extends Scene
         this.darkness = Math.min(1, this.darkness + darknessSpike);
         this.updateDarknessVisuals();
         this.updateHud();
-        this.playPlayerHurt();
-        this.player.setTint(0xaa66ff);
-        this.time.delayedCall(200, () => this.player.clearTint());
 
         if (this.darkness >= 1)
         {
             this.endGame('darkness');
+            return;
         }
+
+        playWizardHitSound(this.game);
+        this.playPlayerHurt();
+        this.player.setTint(0xaa66ff);
+        this.time.delayedCall(200, () => this.player.clearTint());
     }
 
     setupFireballs ()
@@ -689,6 +704,8 @@ export class Game extends Scene
         murklingSprite.patrolVelocityX = 0;
         murkling.setVelocity(0, 0);
         this.runMurklingsDefeated++;
+
+        playMurklingDeathSound(this.game);
 
         if (murkling.body)
         {
@@ -819,6 +836,8 @@ export class Game extends Scene
         this.clearAttackCompleteHandlers();
         this.playerAnimState = 'idle';
         this.setPlayerAnimation('attack');
+
+        playWizardAttackSound(this.game);
 
         this.attackFireballTimer?.remove();
         this.attackFireballTimer = this.time.delayedCall(WIZARD_ATTACK_FIREBALL_DELAY_MS, () =>
@@ -1296,6 +1315,7 @@ export class Game extends Scene
         starlight.setData('collecting', true);
         starlight.disableBody(true, false);
 
+        playStarlightCollectSound(this.game);
         playStarlightCollectAnimation(this, starlight, () =>
         {
             starlight.disableBody(true, true);
@@ -1335,6 +1355,7 @@ export class Game extends Scene
         this.isAwaitingSeasonContinue = true;
         this.physics.pause();
         this.tweens.pauseAll();
+        playSeasonCompleteSound(this);
         this.showSeasonTransitionMenu();
     }
 
@@ -1403,6 +1424,7 @@ export class Game extends Scene
             return;
         }
 
+        playMenuKeySound(this.game);
         regenerateWorldMap();
         this.scene.restart({
             season: (this.currentSeason + 1) as GameSeason,
@@ -1465,30 +1487,30 @@ export class Game extends Scene
 
         if (outcome === 'darkness')
         {
+            playWizardDeathSound(this.game);
             this.cancelPlayerAttack();
             this.playerAnimState = 'idle';
             this.setPlayerAnimation('die');
             this.showEndScreenText('GAME OVER', 'The sky went dark...');
-            this.showEndGameStats({
+        }
+        else
+        {
+            playVictorySound(this.game);
+            this.startVictoryCelebration();
+
+            recordVictory({
                 starlightsCollected: this.runStarlightsCollected,
                 murklingsDefeated: this.runMurklingsDefeated
             });
 
-            return;
+            this.showEndScreenText('VICTORY', 'You saved the world from the darkness!');
         }
 
-        this.startVictoryCelebration();
-
-        recordVictory({
-            starlightsCollected: this.runStarlightsCollected,
-            murklingsDefeated: this.runMurklingsDefeated
-        });
-
-        this.showEndScreenText('VICTORY', 'You saved the world from the darkness!');
         this.showEndGameStats({
             starlightsCollected: this.runStarlightsCollected,
             murklingsDefeated: this.runMurklingsDefeated
         });
+        this.showEndGameMenu();
     }
 
     freezeGameplay ()
@@ -1552,6 +1574,56 @@ export class Game extends Scene
             .setOrigin(0.5)
             .setScrollFactor(0)
             .setDepth(100);
+    }
+
+    showEndGameMenu ()
+    {
+        const { width, height } = this.scale;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        const newGameSelect = () => this.runPauseMenuSelection(() => this.restartGame());
+
+        const newGameButton = this.createPauseMenuButton(
+            centerX,
+            centerY + 168,
+            'New Game',
+            newGameSelect,
+            PAUSE_MENU_DEPTH
+        );
+        newGameButton.background.on('pointerover', () =>
+            newGameButton.background.setFillStyle(SEASON_MENU_BUTTON_HOVER));
+        newGameButton.background.on('pointerout', () =>
+            newGameButton.background.setFillStyle(PAUSE_MENU_BUTTON_NORMAL));
+
+        const hint = this.addScreenSpaceMenuObject(
+            this.add.text(centerX, centerY + 218, 'Enter or Space to start again', {
+                fontFamily: 'Arial Black',
+                fontSize: 18,
+                color: '#fff8c0',
+                stroke: '#000000',
+                strokeThickness: 3,
+                align: 'center'
+            }).setOrigin(0.5),
+            PAUSE_MENU_DEPTH
+        );
+
+        this.endGameMenuElements = [
+            newGameButton.background,
+            newGameButton.label,
+            hint
+        ];
+    }
+
+    updateEndGameMenuInput ()
+    {
+        if (
+            Input.Keyboard.JustDown(this.enterKey)
+            || Input.Keyboard.JustDown(this.spaceKey)
+        )
+        {
+            this.runPauseMenuSelection(() => this.restartGame());
+        }
     }
 
     startVictoryCelebration ()
@@ -1697,24 +1769,27 @@ export class Game extends Scene
             PAUSE_MENU_DEPTH
         );
 
+        const resumeSelect = () => this.runPauseMenuSelection(() => this.resumeGame());
+        const newGameSelect = () => this.runPauseMenuSelection(() => this.restartGame());
+
         const resumeButton = this.createPauseMenuButton(
             centerX,
             centerY - 8,
             'Resume',
-            () => this.resumeGame(),
+            resumeSelect,
             PAUSE_MENU_DEPTH
         );
         const newGameButton = this.createPauseMenuButton(
             centerX,
             centerY + 62,
             'New Game',
-            () => this.restartGame(),
+            newGameSelect,
             PAUSE_MENU_DEPTH
         );
 
         this.pauseMenuButtons = [
-            { ...resumeButton, onSelect: () => this.resumeGame() },
-            { ...newGameButton, onSelect: () => this.restartGame() }
+            { ...resumeButton, onSelect: resumeSelect },
+            { ...newGameButton, onSelect: newGameSelect }
         ];
         this.pauseMenuButtons.forEach((button, index) =>
         {
@@ -1744,6 +1819,12 @@ export class Game extends Scene
             newGameButton.label,
             hint
         ];
+    }
+
+    runPauseMenuSelection (onSelect: () => void)
+    {
+        playMenuKeySound(this.game);
+        onSelect();
     }
 
     setPauseMenuSelection (index: number)
@@ -2030,6 +2111,7 @@ export class Game extends Scene
 
         if (this.gameEnded)
         {
+            this.updateEndGameMenuInput();
             this.updateWorldEntityDepths();
             return;
         }
@@ -2104,6 +2186,11 @@ export class Game extends Scene
             this.player.setVelocityY(jumpVelocity);
             this.airFrames = 2;
             this.groundedFrames = 0;
+
+            if (!this.isHurt)
+            {
+                playWizardJumpSound(this.game, isRunning);
+            }
         }
 
         if (!this.isAttacking)
